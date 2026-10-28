@@ -5,17 +5,22 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from collections.abc import AsyncIterator, Callable, Iterator
+from collections.abc import AsyncIterator, Awaitable, Callable, Iterator
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import httpx
 import psycopg
 import pytest
 from alembic import command
 from alembic.config import Config
+from fastapi import FastAPI
 from psycopg import sql
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
+
+if TYPE_CHECKING:
+    from trippilot.auth.models import Account
 
 # psycopg async is incompatible with the Windows Proactor loop (RESEARCH R5): this must run
 # before any event loop is created.
@@ -202,4 +207,75 @@ async def client(test_database: str) -> AsyncIterator[httpx.AsyncClient]:
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url='http://test') as http_client:
         yield http_client
+    await dispose_engine()
+
+
+MakeApp = Callable[[bool], FastAPI]
+MakeClient = Callable[[FastAPI], httpx.AsyncClient]
+MakeMember = Callable[..., Awaitable[tuple['Account', str]]]
+
+
+@pytest.fixture
+def make_app() -> MakeApp:
+    """Return a factory building an app whose `demo_mode` is set explicitly.
+
+    Tests never rely on the ambient `DEMO_MODE` (a local `.env` may set it): the settings object
+    is a copy with the flag forced, which is also how D-15 is exercised in both directions.
+    """
+    from trippilot.app import create_app
+    from trippilot.settings import get_settings
+
+    def _make(demo_mode: bool) -> FastAPI:
+        settings = get_settings().model_copy(update={'demo_mode': demo_mode})
+        return create_app(settings)
+
+    return _make
+
+
+@pytest.fixture
+async def make_client(test_database: str) -> AsyncIterator[MakeClient]:
+    """Return a factory for httpx clients bound to an app, each with its own cookie jar.
+
+    Every client is closed and the engine disposed at teardown.
+    """
+    from trippilot.db.engine import dispose_engine
+
+    clients: list[httpx.AsyncClient] = []
+
+    def _make(app: FastAPI) -> httpx.AsyncClient:
+        http_client = httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url='http://test'
+        )
+        clients.append(http_client)
+        return http_client
+
+    yield _make
+    for http_client in clients:
+        await http_client.aclose()
+    await dispose_engine()
+
+
+@pytest.fixture
+async def make_member(test_database: str) -> AsyncIterator[MakeMember]:
+    """Return `make_member(display_name='Test Member') -> (Account, raw_cookie_value)`.
+
+    Inserts a member account and calls `create_session` directly (no HTTP), committing so the
+    app under test can see both rows.
+    """
+    from trippilot.auth.models import Account
+    from trippilot.auth.sessions import create_session
+
+    from trippilot.db.engine import dispose_engine, get_engine, session_factory
+
+    async def _make(display_name: str = 'Test Member') -> tuple[Account, str]:
+        get_engine()
+        async with session_factory() as session:
+            account = Account(kind='member', display_name=display_name)
+            session.add(account)
+            await session.flush()
+            raw = await create_session(session, account.id, is_persona=False, user_agent='pytest')
+            await session.commit()
+        return account, raw
+
+    yield _make
     await dispose_engine()
