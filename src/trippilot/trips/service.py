@@ -1,4 +1,4 @@
-"""Trip creation and the member-only trip view (D-20)."""
+"""Trip creation, the member-only trip view (D-20) and the organiser and cap guards."""
 
 from __future__ import annotations
 
@@ -6,7 +6,7 @@ import uuid
 
 from fastapi import HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trippilot.auth.models import Account
@@ -16,6 +16,8 @@ TRIP_NAME_MAX_LENGTH = 80
 ORGANISER_ROLE = 'organiser'
 MEMBER_ROLE = 'member'
 ACTIVE_STATUS = 'active'
+MAX_MEMBERS = 12
+"""Hard cap on active members per trip (D-22)."""
 
 
 class MemberView(BaseModel):
@@ -86,3 +88,47 @@ async def get_trip_view(db: AsyncSession, trip_id: uuid.UUID, account: Account) 
             for member, who in rows
         ],
     )
+
+
+async def lock_trip(db: AsyncSession, trip_id: uuid.UUID) -> Trip | None:
+    """Return the trip with its row locked FOR UPDATE until the caller's transaction ends.
+
+    Joins, readds, leaves, removals and link resets all take this lock first, so the member cap
+    and the one-live-link rule are checked against a state nobody else can change meanwhile.
+    """
+    result = await db.execute(
+        select(Trip)
+        .where(Trip.id == trip_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+    return result.scalar_one_or_none()
+
+
+async def count_active_members(db: AsyncSession, trip_id: uuid.UUID) -> int:
+    """Return how many active members the trip has."""
+    result = await db.execute(
+        select(func.count())
+        .select_from(Member)
+        .where(Member.trip_id == trip_id, Member.status == ACTIVE_STATUS)
+    )
+    return int(result.scalar_one())
+
+
+async def require_organiser_trip(
+    db: AsyncSession, trip_id: uuid.UUID, account: Account, *, lock: bool = False
+) -> Trip:
+    """Return the trip when `account` is its organiser.
+
+    Raises 404 for an unknown trip, a stranger and a persona looking at a non-demo trip (the
+    id is never confirmed), and 403 for an active member who is not the organiser.
+    """
+    trip = await lock_trip(db, trip_id) if lock else await db.get(Trip, trip_id)
+    if trip is None or (account.kind == 'persona' and not trip.demo_mode):
+        raise _not_found()
+    if trip.organiser_account_id == account.id:
+        return trip
+    membership = await db.get(Member, (trip_id, account.id))
+    if membership is None or membership.status != ACTIVE_STATUS:
+        raise _not_found()
+    raise HTTPException(status.HTTP_403_FORBIDDEN, 'Only the organiser can do that')

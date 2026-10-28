@@ -509,8 +509,7 @@ async def test_a_persona_cannot_join_a_non_demo_trip(
     preview = await persona.get(f'/api/invites/{token}')
     join = await persona.post(f'/api/invites/{token}/join')
 
-    assert preview.status_code == 200
-    assert preview.json()['members'] == []
+    assert preview.status_code == 404
     assert join.status_code == 404
     assert _scalar(sync_conn, 'SELECT count(*) FROM members WHERE trip_id = %s', (trip_id,)) == 1
 

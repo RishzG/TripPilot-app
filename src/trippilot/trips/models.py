@@ -1,11 +1,11 @@
-"""ORM models for the 0001_skeleton trip tables: trips and members."""
+"""ORM models for the trip tables: trips and members (0001), invites (0003)."""
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Text, text
+from sqlalchemy import ForeignKey, LargeBinary, Text, text
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -43,3 +43,22 @@ class Member(Base):
     role: Mapped[str] = mapped_column(Text)
     status: Mapped[str] = mapped_column(Text, server_default='active')
     joined_at: Mapped[datetime] = mapped_column(server_default=text('now()'))
+
+
+class Invite(Base):
+    """A trip's invite link. Only sha256 of the raw token is stored, never the token (D-21).
+
+    A partial unique index allows at most one row per trip with `revoked_at` null.
+    """
+
+    __tablename__ = 'invites'
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, server_default=text('gen_random_uuid()')
+    )
+    trip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey('trips.id', ondelete='CASCADE')
+    )
+    token_hash: Mapped[bytes] = mapped_column(LargeBinary, unique=True)
+    created_at: Mapped[datetime] = mapped_column(server_default=text('now()'))
+    revoked_at: Mapped[datetime | None]
