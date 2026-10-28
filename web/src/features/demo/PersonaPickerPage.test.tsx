@@ -22,7 +22,7 @@ const PERSONAS = [
   { slug: 'theo', name: 'Theo', avatar_key: 'theo', note: 'always late' },
 ];
 
-function renderPicker() {
+function renderPicker(entry = '/demo') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -30,8 +30,9 @@ function renderPicker() {
     [
       { path: '/demo', element: <PersonaPickerPage /> },
       { path: '/trips/new', element: <p>Start a trip screen</p> },
+      { path: '/join/:token', element: <p>Join screen</p> },
     ],
-    { initialEntries: ['/demo'] },
+    { initialEntries: [entry] },
   );
   return render(
     <QueryClientProvider client={queryClient}>
@@ -73,6 +74,29 @@ describe('PersonaPickerPage', () => {
       params: { path: { slug: 'maya' } },
     });
   });
+
+  it('returns to the invite link after signing in when next points inside the app', async () => {
+    get.mockResolvedValue(reply(200, PERSONAS));
+    post.mockResolvedValue(reply(200, { id: 'a1' }));
+    renderPicker(`/demo?next=${encodeURIComponent('/join/tok-1')}`);
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Continue as Theo' }),
+    );
+    expect(await screen.findByText('Join screen')).toBeTruthy();
+  });
+
+  it.each(['https://evil.example/x', '//evil.example', '/\\evil.example'])(
+    'ignores an outside next (%s) and goes to start a trip',
+    async (next) => {
+      get.mockResolvedValue(reply(200, PERSONAS));
+      post.mockResolvedValue(reply(200, { id: 'a1' }));
+      renderPicker(`/demo?next=${encodeURIComponent(next)}`);
+      fireEvent.click(
+        await screen.findByRole('button', { name: 'Continue as Maya' }),
+      );
+      expect(await screen.findByText('Start a trip screen')).toBeTruthy();
+    },
+  );
 
   it('renders the standard not-found page when the persona list is a 404 (demo mode off, D-15)', async () => {
     get.mockResolvedValue(reply(404, { detail: 'Not Found' }));
