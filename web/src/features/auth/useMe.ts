@@ -1,4 +1,4 @@
-import { useQuery } from '@tanstack/react-query';
+import { type QueryClient, useQuery } from '@tanstack/react-query';
 import { api, unwrap } from '../../lib/api';
 
 /**
@@ -17,4 +17,22 @@ export function useMe() {
     },
     retry: false,
   });
+}
+
+/**
+ * Drop everything cached for the previous visitor, so nothing a signed-out or other-persona
+ * session fetched is shown after sign-in (the cache is per browser, not per account).
+ */
+export function forgetSignedInState(queryClient: QueryClient) {
+  for (const key of ['me', 'invite', 'trips', 'trip']) {
+    queryClient.removeQueries({ queryKey: [key] });
+  }
+}
+
+/** Return `next` when it is a path inside this app, else the fallback (no open redirects). */
+export function safeNextPath(next: string | null, fallback: string): string {
+  if (next?.startsWith('/') && !next.startsWith('//') && !next.includes('\\')) {
+    return next;
+  }
+  return fallback;
 }

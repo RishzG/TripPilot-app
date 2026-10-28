@@ -1,6 +1,7 @@
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { Link, useNavigate } from 'react-router';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { Link, useNavigate, useSearchParams } from 'react-router';
 import { ApiError, api, unwrap } from '../../lib/api';
+import { forgetSignedInState, safeNextPath } from '../auth/useMe';
 
 /**
  * The standard not-found page. When DEMO_MODE is off the persona route does not exist, so the
@@ -23,9 +24,14 @@ function NotFound() {
   );
 }
 
-/** Pick a simulated friend to be (D-13, D-18); switching is signing in as another. */
+/**
+ * Pick a simulated friend to be (D-13, D-18); switching is signing in as another. A `next`
+ * path inside the app (an invite link) is where the visitor goes afterwards.
+ */
 export function PersonaPickerPage() {
   const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const [searchParams] = useSearchParams();
   const personas = useQuery({
     queryKey: ['demo-personas'],
     queryFn: async () => unwrap(await api.GET('/api/demo/personas')),
@@ -38,7 +44,10 @@ export function PersonaPickerPage() {
           params: { path: { slug } },
         }),
       ),
-    onSuccess: () => navigate('/trips/new'),
+    onSuccess: () => {
+      forgetSignedInState(queryClient);
+      navigate(safeNextPath(searchParams.get('next'), '/trips/new'));
+    },
   });
 
   if (personas.isPending) {
