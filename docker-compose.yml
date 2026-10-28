@@ -1,4 +1,12 @@
-# Local development stack (plan 01-19). 01-24 adds the app and worker services.
+# Local stack (plans 01-19 and 01-24): Postgres, the web app with the SPA, and the worker.
+# `docker compose up --build` builds the one image used by both app and worker (D-49, D-50).
+x-app-environment: &app-environment
+  APP_ENV: local
+  DEMO_MODE: 'true'
+  PAYPAL_MODE: fake
+  PUBLIC_BASE_URL: http://localhost:8000
+  DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/trippilot
+
 services:
   db:
     image: postgres:16
@@ -14,6 +22,41 @@ services:
       interval: 2s
       timeout: 3s
       retries: 30
+
+  app:
+    build:
+      context: .
+      args:
+        GIT_SHA: ${GIT_SHA:-dev}
+    image: trippilot:local
+    command: >-
+      sh -c "alembic upgrade head &&
+      exec uvicorn trippilot.app:create_app --factory --host 0.0.0.0 --port 8000
+      --workers 1 --no-access-log"
+    environment: *app-environment
+    ports:
+      - '8000:8000'
+    depends_on:
+      db:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - import urllib.request; urllib.request.urlopen('http://localhost:8000/api/health', timeout=3)
+      interval: 3s
+      timeout: 5s
+      retries: 40
+      start_period: 5s
+
+  worker:
+    image: trippilot:local
+    command: procrastinate --app=trippilot.jobs.app.app worker
+    environment: *app-environment
+    depends_on:
+      app:
+        condition: service_healthy
 
 volumes:
   trippilot_pgdata:
