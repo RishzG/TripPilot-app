@@ -87,7 +87,9 @@ class JoinResult:
 class InvitePreview(BaseModel):
     """What the join page shows for a link (D-23).
 
-    A signed-out visitor gets the trip name and the organiser's first name only.
+    A signed-out visitor gets the trip name and the organiser's first name only. `trip_id` is set
+    only for someone already in the trip, so the page can send them to it; a stranger never gets
+    the id.
     """
 
     trip_name: str
@@ -95,6 +97,7 @@ class InvitePreview(BaseModel):
     members: list[str]
     joining_open: bool | None
     already_member: bool
+    trip_id: uuid.UUID | None = None
 
 
 def hash_invite_token(raw: str) -> bytes:
@@ -214,12 +217,14 @@ async def preview_invite(db: AsyncSession, raw: str, account: Account | None) ->
             .order_by(Member.joined_at, Account.id)
         )
     ).all()
+    already_member = any(member_id == account.id for member_id, _ in rows)
     return InvitePreview(
         trip_name=trip.name,
         organiser_name=organiser_name,
         members=[name for _, name in rows],
         joining_open=not trip.joining_closed and len(rows) < MAX_MEMBERS,
-        already_member=any(member_id == account.id for member_id, _ in rows),
+        already_member=already_member,
+        trip_id=trip.id if already_member else None,
     )
 
 
