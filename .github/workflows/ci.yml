@@ -59,13 +59,24 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: 0.11.14
       - uses: actions/setup-node@v7
         with:
           node-version: 22
           cache: npm
           cache-dependency-path: web/package-lock.json
+      - name: Install Python dependencies
+        run: uv sync --frozen
+      - name: Dump OpenAPI schema
+        run: uv run python scripts/dump_openapi.py
+      - name: Assert persona routes are in the schema
+        run: grep -q '"/api/demo/personas"' web/openapi.json
       - name: Install dependencies
         run: npm --prefix web ci
+      - name: Generate typed API client
+        run: npm --prefix web run gen:api
       - name: Typecheck
         run: npm --prefix web run typecheck
       - name: Biome
@@ -74,3 +85,11 @@ jobs:
         run: npm --prefix web test -- --run
       - name: Build
         run: npm --prefix web run build
+
+  docker-build:
+    name: docker-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - name: Build release image
+        run: docker build --build-arg GIT_SHA=${{ github.sha }} -t trippilot:ci .
