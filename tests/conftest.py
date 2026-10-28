@@ -6,10 +6,13 @@ import asyncio
 import os
 import sys
 from collections.abc import AsyncIterator, Callable, Iterator
+from pathlib import Path
 
 import httpx
 import psycopg
 import pytest
+from alembic import command
+from alembic.config import Config
 from psycopg import sql
 from sqlalchemy.engine import make_url
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -18,6 +21,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # before any event loop is created.
 if sys.platform == 'win32':
     asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 DEFAULT_TEST_DATABASE_URL = 'postgresql+psycopg://postgres:postgres@localhost:5432/trippilot_test'
 
@@ -58,14 +63,20 @@ def _maintenance_connection() -> psycopg.Connection[tuple[object, ...]]:
     )
 
 
-def ensure_test_database() -> None:
-    """Create the test database if it does not exist yet."""
+def recreate_test_database() -> None:
+    """Drop and recreate the test database so every session starts from nothing."""
     name = make_url(TEST_DATABASE_URL).database
     assert name is not None
     with _maintenance_connection() as conn:
-        exists = conn.execute('SELECT 1 FROM pg_database WHERE datname = %s', (name,)).fetchone()
-        if exists is None:
-            conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
+        quoted = sql.Identifier(name)
+        conn.execute(sql.SQL('DROP DATABASE IF EXISTS {} WITH (FORCE)').format(quoted))
+        conn.execute(sql.SQL('CREATE DATABASE {}').format(quoted))
+
+
+def upgrade_test_database() -> None:
+    """Run `alembic upgrade head` once against the test database (URL comes from Settings)."""
+    config = Config(str(REPO_ROOT / 'alembic.ini'))
+    command.upgrade(config, 'head')
 
 
 Conn = psycopg.Connection[tuple[object, ...]]
@@ -108,26 +119,66 @@ def table_helpers() -> tuple[Callable[[Conn], list[str]], Callable[[Conn, list[s
 @pytest.fixture
 def sync_conn(test_database: str) -> Iterator[Conn]:
     """Yield an autocommit psycopg connection to the test database for catalog checks."""
-    url = make_url(test_database)
-    with psycopg.connect(
+    with _maintenance_connection_to_test_database() as conn:
+        yield conn
+
+
+_truncatable_tables: list[str] = []
+"""Names read from `pg_tables` once per session, right after the upgrade."""
+
+_DATABASE_FIXTURES = frozenset({'db', 'client', 'sync_conn', 'test_database'})
+
+
+@pytest.fixture(scope='session')
+def test_database() -> str:
+    """Create a fresh test database, migrate it to head once, and return its URL.
+
+    The fixture is lazy: unit tests that never touch the database do not need Postgres.
+    """
+    from trippilot.settings import get_settings
+
+    recreate_test_database()
+    get_settings.cache_clear()
+    upgrade_test_database()
+    get_settings.cache_clear()
+    with _maintenance_connection_to_test_database() as conn:
+        _truncatable_tables[:] = application_tables(conn)
+    return TEST_DATABASE_URL
+
+
+def _maintenance_connection_to_test_database() -> Conn:
+    """Open an autocommit psycopg connection to the test database itself."""
+    url = make_url(TEST_DATABASE_URL)
+    return psycopg.connect(
         host=url.host,
         port=url.port,
         user=url.username,
         password=url.password,
         dbname=url.database,
         autocommit=True,
-    ) as conn:
-        yield conn
+    )
 
 
-@pytest.fixture(scope='session', autouse=True)
-def test_database() -> str:
-    """Make sure the test database exists and return its URL."""
-    from trippilot.settings import get_settings
+@pytest.fixture(autouse=True)
+def _empty_application_tables(request: pytest.FixtureRequest) -> None:
+    """Start every database-backed test with every application table empty.
 
-    ensure_test_database()
-    get_settings.cache_clear()
-    return TEST_DATABASE_URL
+    The tables truncated are every public table except `alembic_version` and `ledger_entries`,
+    discovered from `pg_tables` after the upgrade, so tables added by later revisions are cleared
+    without editing this fixture. Tests under `tests/integration`, and any test that requests
+    `db`, `client` or `sync_conn`, get a truncation before they run.
+
+    RULE FOR EVERY LATER TEST: `ledger_entries` is append-only (a BEFORE TRUNCATE trigger from
+    revision 0004 raises) and its rows persist across tests. Assertions on it must filter by a
+    trip_id, request_id or actor_id that is unique to the test and must never count all rows or
+    assume ids start at 1.
+    """
+    in_integration = 'integration' in request.path.parts
+    if not in_integration and _DATABASE_FIXTURES.isdisjoint(request.fixturenames):
+        return
+    request.getfixturevalue('test_database')
+    with _maintenance_connection_to_test_database() as conn:
+        truncate_application_tables(conn, _truncatable_tables)
 
 
 @pytest.fixture
