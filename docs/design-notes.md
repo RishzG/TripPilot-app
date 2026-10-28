@@ -1,0 +1,58 @@
+# TripPilot design notes
+
+Running list of design proposals and test findings for the team to discuss.
+Change a status only after the team agrees. Full plan: [proposal page](https://claude.ai/artifact/GTmaiK2L4fX9yqkYcUUDfa).
+
+Status: **Proposed** (open for discussion) · **Agreed** · **Rejected** · **Built**
+
+## Proposed design changes (from the agentic-payments research, 2026-10-22)
+
+| # | Change | Why | Source | Status |
+|---|---|---|---|---|
+| D1 | Approval cards are drawn only by our code from the vendor quote. The AI's text can explain, never set the amount or payee. | Attackers can tamper with what a user sees before they approve; a valid approval can still authorise the wrong thing. | Aviv et al. 2026, “Beyond the Mandate” (AP2 security analysis) | Proposed |
+| D2 | Each commitment works like a mandate: trip, cap, payee, expiry, one checkout only, a one-time code, and a request ID on every charge, release and payout. | Prevents reused approvals and double charges. | Google AP2 spec v0.2; OpenAI/Stripe ACP payment spec; Li et al. 2026 (x402 attacks) | Proposed |
+| D3 | Money tools can't be reached from untrusted text (listing descriptions, vendor messages, chat). Only a member's own request can unlock them. | Blocks prompt injection by design. | Debenedetti et al. 2025, CaMeL | Proposed |
+| D4 | Early-bird perk: members who commit early get a small credit or waived fee if the Group Checkout fails. | Refund bonuses nearly doubled success in all-or-nothing group payments in lab tests. | Cason et al. 2026, Journal of Urban Economics | Proposed |
+| D5 | The organiser coordinates but can't move other members' money; each member sees only what concerns them. | Group money apps can let one person control or watch the others. | Lee & Bellini, CHI 2025 | Proposed |
+| D6 | Automatic checks: total charged never exceeds the sum of members' caps, and holds only move through allowed states (held → charged / released / expired). | Keeps what was authorised consistent with what is charged. | Jiang et al. 2026 (formal analysis of agent payment protocols) | Proposed |
+| D7 | Capture only after the vendor confirms price and availability; keep an append-only ledger of every money move. | Verify-then-pay with a tamper-evident record. | Goenka et al. 2026, TessPay | Proposed |
+| D8 | Settle-up uses netting plus greedy matching and is described as “near-minimal”, not “optimal”. | The true minimum number of payments is NP-hard; greedy comes close. | Bultel et al. 2020 | Proposed |
+| D9 | For agent-to-agent negotiation (stretch): the PayPal hold is the hard budget, and code, not the AI, ranks offers. | Negotiating agents broke budgets and favoured whichever offer came first. | Zhu et al. 2025; Magentic Marketplace 2025 | Proposed |
+| D10 | Plain-language limits (“book under $400, cabins only”) become a scope the member confirms before the agent can act. | Makes delegated permissions explicit and checkable. | South et al. 2025, authenticated delegation | Proposed |
+
+## Stage 1 sandbox findings
+
+| Date | Check | Result | Effect on the plan |
+|---|---|---|---|
+| 2026-10-22 | Venmo payouts (phone, email) | ❌ PayPal rejected: “Recipient wallet not supported in sandbox.” | Pay people back to PayPal only; Venmo payouts are a roadmap line in the pitch. |
+| 2026-10-22 | Venmo button shows (hold intent) | ✅ Shows with `buyer-country=US&enable-funding=venmo`. | — |
+| 2026-10-22 | Venmo login and approval | ❌ Blocked: the Venmo login rejects our sandbox account and we can't create Venmo test accounts. | Venmo checkout unconfirmed; asked PayPal on Discord. Demo uses PayPal. |
+| 2026-10-22 | PayPal hold, charge $0.50 of $1.00, release the rest | ✅ Hold `CREATED`, capture `COMPLETED`, authorization ends `CAPTURED` (rest released by `final_capture`). | Group Checkout's “commit up to $X, charge the final share” works. |
+| 2026-10-22 | PayPal hold, then release | ✅ Authorization `VOIDED`. | Drop-outs and missed deadlines can release holds. |
+| 2026-10-22 | PayPal pay now | ✅ Capture `COMPLETED`. | Fallback and trip-tab pay-ins work. |
+| 2026-10-22 | PayPal payout $1.00 to a member (sandbox personal account) | ✅ Batch `SUCCESS`, item `SUCCESS`, wallet `PAYPAL`. No activation step was needed in sandbox. | Reimbursements and loan repayments to members work. |
+| 2026-10-22 | PayPal payout $1.00 to a vendor (second sandbox business account) | ✅ Batch `SUCCESS`, item `SUCCESS`, wallet `PAYPAL`. | TripPilot can pay vendors after a booking. |
+| 2026-10-22 | Saved PayPal: create setup token | ❌ HTTP 403 `NOT_AUTHORIZED` (“insufficient permissions”). The sandbox app doesn't have Vault turned on. | Enable Vault on the sandbox app (Apps & Credentials → app → Features → Accept payments → Advanced options → Vault), then rerun. |
+| 2026-10-22 | Saved PayPal after enabling “Save payment methods” and “PayPal and Venmo” on app `BAA8yyz5…` | ❌ Still 403. The app's access token has only the old card-vault permissions, not the payment-token one. | Next: check the eligibility status for saving PayPal, try a new sandbox app, or ask PayPal on Discord. Fallback for simulated friends if it never works: see below. |
+| 2026-10-22 | Cause found: PayPal reuses an access token until it expires (same token on repeated requests, `expires_in` counting down from 32400 s). Permissions are fixed when the token is issued, so the token from before the dashboard change kept the old permissions. | ✅ Revoking it (`POST /v1/oauth2/token/terminate`) and requesting a new one gave a token with `vault/payment-tokens/readwrite`. | After changing app features, revoke the token (`uv run python venmo_sandbox_test.py new-token`). The real backend needs the same “revoke and refresh” step. |
+| 2026-10-22 | Saved PayPal: buyer approves saving once | ✅ Setup token approved, payment token created and stored in `vault_token.json` (git-ignored). | Simulated friends can be set up once by the team. |
+| 2026-10-22 | Saved PayPal: $1.00 hold with no buyer login, then release | ✅ Order `COMPLETED` straight away with authorization `CREATED`; void gave `VOIDED`. | Simulated friends' commitments can be real holds placed automatically. The seeded-commitments fallback isn't needed. Note: with a saved PayPal the hold is placed in the create-order call itself, with no separate authorize step. |
+
+### Still to check in Stage 1
+- Saved PayPal for several sandbox buyers (one per simulated friend; each needs its own personal account and one approval).
+- Several members' holds charged in one Group Checkout run.
+- Webhooks arriving on Render (hold created, payment captured, hold voided, payout done).
+- Renewing a hold after the 3-day honor period (can only be tested on day 4+).
+
+## Phase 1 spike results
+
+| Date | Check | Result | Effect on the plan |
+|---|---|---|---|
+| 2026-10-28 | Reauth test hold 1 placed (staging app `BAA8yyz5…`) | ✅ Authorization `3HJ189595J804324R` (order `9L366866A1332615U`), status `CREATED`. `create_time` 2026-10-28T05:26:44Z, `expiration_time` 2026-11-26T05:26:44Z, `honor_ends` (create_time + 72h) 2026-10-31T05:26:44Z. | Reauthorize on day 4 after 2026-10-31T05:26:44Z with the staging app's credentials (UD-1); compare with hold 2. |
+| 2026-10-28 | Reauth test hold 2 placed (staging app `BAA8yyz5…`) | ✅ Authorization `21G42554211627257` (order `9N7952916A482592V`), status `CREATED`. `create_time` 2026-10-28T05:26:46Z, `expiration_time` 2026-11-26T05:26:46Z, `honor_ends` 2026-10-31T05:26:46Z. | Leave untouched until day 5 (2026-11-01T05:26:46Z, create_time + 96h), then reauthorize. Neither hold may be voided or captured before then (ACC-03). |
+| 2026-10-28 | `expiration_time` versus the honor period | PayPal's `expiration_time` is create_time + 29 days on both holds (2026-11-26). This is the end of the authorization's validity, not the 3-day honor period (R3). | `honor_ends` is computed as create_time + 72h, not read from PayPal. Whether the honor period really ends then is what the day-4/day-5 reauthorization experiment checks. |
+| 2026-10-28 | Duffel Stays access requested | Requested 2026-10-28, confirmed by the user at 2026-10-28T05:34Z; no request reference given. A Duffel test-mode token was also created and placed in the local `.env` (not verified here; plan 01-06 exercises it). | Adopt in v1 only if granted and the Test Hotels search -> book flow works in half a day by Oct 30 (D-34's Oct 29 plus the one-day slip); otherwise stays stay v2 (VEND-07). |
+| 2026-10-28 | Schedule slip: planning took Oct 27 | Holds placed 2026-10-28 instead of Oct 27. | Day-4/day-5 reauthorization at 2026-10-31T05:26:44Z (hold 1) and 2026-11-01T05:26:46Z (hold 2), computed from create_time; Duffel go/no-go Oct 28-29; Pay Later and Stays cut-off by Oct 30. |
+| 2026-10-28 | D-28 deviation: test holds placed with a standalone stdlib script | `scripts/spikes/place_test_holds.py`, not the typed client. | The typed client did not exist yet and D-29 required the holds as early as possible; the day-4/day-5 reauthorize calls use the typed client (01-18). |
+| 2026-10-28 | Log in with PayPal (D-04) | PASS | Run 2026-10-28T19:17Z on the staging app `BAA8yyz5…`, scope `openid profile email`. Code exchange works with `redirect_uri` sent alongside `grant_type` and `code`. Userinfo schema `paypalv1.1` worked. Claims returned: `emails`, `name`, `sub`, `user_id`; `sub` and `user_id` carry the same value, so the stable account key is `sub` (equal to `user_id`). NOT returned: `payer_id` (the `paypalattributes` scope was rejected with “invalid scope” at this time; `openid`, `openid profile`, `openid email` and `openid profile email` were all accepted) and `given_name` (only `name` is present). PASS: 01-12 keys accounts on `sub`/`user_id`; nickname is prefilled from the first token of `name` (D-09) because `given_name` is absent; 01-28 (email magic link) is skipped. The `payer_id` needed to link a login to a vaulted payer must come from the vault payment-token response instead, unless a later retry with the `paypalattributes` scope succeeds (opt-in: `start --with-payer-id`); flag for 01-12 and 01-08. |
+| 2026-10-28 | Log in with PayPal Return URLs on the staging app | ✅ The dashboard supports multiple Return URLs (“+ Add another URL”): `https://example.com/trippilot-login-spike` was added next to the pre-existing `nativexo://paypalpay`, which was left untouched. PayPal says return-URL and feature changes can take up to 3 hours to take effect. | The research assumption of a single Return URL is settled (UD-1): 01-12 adds the staging callback as an extra URL without removing the spike one. Allow up to 3 hours of propagation after changing URLs or attributes before testing. |

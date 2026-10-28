@@ -1,0 +1,38 @@
+@import 'tailwindcss';
+
+/*
+ * Theme tokens (D-40, D-43). Every colour in the SPA is defined here, once, as a CSS variable.
+ * Light theme only. Components use the Tailwind utilities mapped below (bg-accent, text-money, ...)
+ * and never a colour literal, so the whole palette can be swapped in this one block.
+ */
+:root {
+  --accent: #c2410c;
+  --accent-foreground: #ffffff;
+  --background: #fffaf5;
+  --foreground: #1c1917;
+  --muted: #f5ede4;
+  --muted-foreground: #57534e;
+  --border: #e7d9ca;
+  --money: #1d4ed8;
+  --sandbox-banner: #fef3c7;
+  --sandbox-banner-foreground: #78350f;
+}
+
+@theme inline {
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-border: var(--border);
+  --color-money: var(--money);
+  --color-sandbox-banner: var(--sandbox-banner);
+  --color-sandbox-banner-foreground: var(--sandbox-banner-foreground);
+}
+
+body {
+  margin: 0;
+  background-color: var(--background);
+  color: var(--foreground);
+}
