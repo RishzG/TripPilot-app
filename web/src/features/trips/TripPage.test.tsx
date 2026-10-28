@@ -11,6 +11,7 @@ import { createMemoryRouter, RouterProvider } from 'react-router';
 import { toast } from 'sonner';
 import type { Mock } from 'vitest';
 import { api } from '../../lib/api';
+import { FakeEventSource } from '../../test-support/fakeEventSource';
 import { TripPage } from './TripPage';
 
 vi.mock('../../lib/api', async (importOriginal) => {
@@ -443,5 +444,73 @@ describe('TripPage membership controls', () => {
     renderTrip();
     await screen.findByRole('heading', { level: 1, name: 'Tahoe weekend' });
     expect(screen.queryByRole('button', { name: 'Leave trip' })).toBeNull();
+  });
+});
+
+describe('TripPage live updates', () => {
+  const SAM = { account_id: 'a3', display_name: 'Sam', role: 'member' };
+
+  beforeEach(() => {
+    get.mockReset();
+    post.mockReset();
+    FakeEventSource.reset();
+    vi.stubGlobal('EventSource', FakeEventSource);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function stream(): FakeEventSource {
+    const source = FakeEventSource.instances[0];
+    if (source === undefined) {
+      throw new Error('the trip page did not open its event stream');
+    }
+    return source;
+  }
+
+  async function renderWithSamJoiningLater() {
+    let samIn = false;
+    get.mockImplementation(async (path: string) => {
+      if (path === '/api/trips/{trip_id}') {
+        const members = samIn
+          ? [...ORGANISER_TRIP.members, SAM]
+          : ORGANISER_TRIP.members;
+        return answer({ status: 200, data: { ...ORGANISER_TRIP, members } });
+      }
+      return answer({ status: 200, data: { url: INVITE_URL } });
+    });
+    renderTrip();
+    await screen.findByText('2 of 12 in');
+    return () => {
+      samIn = true;
+      act(() => stream().emit('member.joined', '{"account_id":"a3"}'));
+    };
+  }
+
+  it('opens the trip event stream for the trip being shown', async () => {
+    await renderWithSamJoiningLater();
+    expect(stream().url).toBe('/api/trips/trip-1/events');
+  });
+
+  it('adds a member who joins without a refresh, animated and announced', async () => {
+    const samJoins = await renderWithSamJoiningLater();
+    const list = screen.getByRole('list', { name: "Who's in" });
+    const firstPaint = within(list).getAllByRole('listitem');
+    for (const row of firstPaint) {
+      expect(row.className).not.toContain('animate-in');
+    }
+
+    samJoins();
+
+    expect(await screen.findByText('3 of 12 in')).toBeTruthy();
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows).toHaveLength(3);
+    expect(rows[2]?.textContent).toContain('Sam');
+    expect(rows[2]?.className).toContain('motion-safe:animate-in');
+    expect(rows[0]?.className).not.toContain('animate-in');
+    expect(
+      screen.getByText('Sam joined the trip').closest('[aria-live]'),
+    ).not.toBeNull();
   });
 });
