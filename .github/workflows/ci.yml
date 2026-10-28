@@ -1,0 +1,76 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  backend:
+    name: backend
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: trippilot_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@localhost:5432/trippilot_test
+      APP_ENV: test
+      PAYPAL_MODE: fake
+    steps:
+      - uses: actions/checkout@v7
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: 0.11.14
+      - name: Install dependencies
+        run: uv sync --frozen
+      - name: Ruff lint
+        run: uv run ruff check .
+      - name: Ruff format
+        run: uv run ruff format --check .
+      - name: Mypy strict
+        run: uv run mypy --strict src tests scripts
+      - name: Alembic single head
+        run: test "$(uv run alembic heads | wc -l)" -eq 1
+      - name: Alembic upgrade
+        run: uv run alembic upgrade head
+      - name: Pytest
+        run: uv run pytest -q
+
+  frontend:
+    name: frontend
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: web/package-lock.json
+      - name: Install dependencies
+        run: npm --prefix web ci
+      - name: Typecheck
+        run: npm --prefix web run typecheck
+      - name: Biome
+        run: npm --prefix web run lint
+      - name: Vitest
+        run: npm --prefix web test -- --run
+      - name: Build
+        run: npm --prefix web run build
