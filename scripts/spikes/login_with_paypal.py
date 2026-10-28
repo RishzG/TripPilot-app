@@ -8,7 +8,8 @@ Subcommands:
 - ``terminate-token``: terminate the cached app client-credentials token once. Run it right
   after changing the app's features in the PayPal dashboard (research Pitfall 2), so every
   later process starts with a token that carries the new permissions.
-- ``start``: generate a single-use ``state``, save it with a timestamp, print the consent URL.
+- ``start [--with-payer-id]``: generate a single-use ``state``, save it with a timestamp, print
+  the consent URL (scope ``openid profile email``; the paypalattributes scope is opt-in).
 - ``finish --redirect-url URL``: check ``state`` (exact match, under ten minutes old), exchange
   the code through ``get_paypal_gateway()``, read userinfo, and record PASS with the schema
   that worked and the claim names that came back.
@@ -52,12 +53,10 @@ JsonDict = dict[str, Any]
 REPO_ROOT = Path(__file__).resolve().parents[2]
 RESULTS_FILE = REPO_ROOT / 'scripts' / 'spikes' / 'results' / 'login_spike.json'
 REDIRECT_URI = 'https://example.com/trippilot-login-spike'
-SCOPES = (
-    'openid',
-    'profile',
-    'email',
-    'https://uri.paypal.com/services/paypalattributes',
-)
+SCOPES = ('openid', 'profile', 'email')
+# Opt-in only: PayPal answered "invalid scope" for any combination containing this scope on
+# 2026-10-28 (payer-id attribute setting had not taken effect), so it is not in the default.
+PAYER_ID_SCOPE = 'https://uri.paypal.com/services/paypalattributes'
 STATE_MAX_AGE_SECONDS = 600
 SCHEMA_PRIMARY = 'paypalv1.1'
 SCHEMA_FALLBACK = 'openid'
@@ -95,9 +94,10 @@ def _sandbox_problem(settings: Settings) -> str | None:
     return None
 
 
-def _consent_url(settings: Settings, state: str) -> str:
+def _consent_url(settings: Settings, state: str, *, with_payer_id: bool = False) -> str:
     """Build the Log in with PayPal consent URL; it carries only the client id and the state."""
-    scope = quote(' '.join(SCOPES), safe='')
+    scopes = (*SCOPES, PAYER_ID_SCOPE) if with_payer_id else SCOPES
+    scope = quote(' '.join(scopes), safe='')
     redirect = quote(REDIRECT_URI, safe='')
     return (
         f'{settings.paypal_web_base.rstrip("/")}/connect?flowEntry=static'
@@ -144,7 +144,7 @@ async def cmd_terminate_token() -> int:
 # -- start -----------------------------------------------------------------------------------
 
 
-def cmd_start() -> int:
+def cmd_start(*, with_payer_id: bool = False) -> int:
     """Save a fresh single-use state and print the consent URL (client id and state only)."""
     settings = get_settings()
     problem = _sandbox_problem(settings)
@@ -163,7 +163,7 @@ def cmd_start() -> int:
         'redirect_uri': REDIRECT_URI,
     }
     _write_results(results)
-    print(_consent_url(settings, state))
+    print(_consent_url(settings, state, with_payer_id=with_payer_id))
     print(f'[works] start: state saved to {RESULTS_FILE.relative_to(REPO_ROOT).as_posix()}')
     return 0
 
@@ -323,7 +323,12 @@ def _parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description='Log in with PayPal spike (D-04).')
     sub = parser.add_subparsers(dest='command', required=True)
     sub.add_parser('terminate-token', help='terminate the cached app token once (Pitfall 2)')
-    sub.add_parser('start', help='save a state and print the consent URL')
+    start = sub.add_parser('start', help='save a state and print the consent URL')
+    start.add_argument(
+        '--with-payer-id',
+        action='store_true',
+        help='also request the paypalattributes scope (rejected as invalid scope on 2026-10-28)',
+    )
     finish = sub.add_parser('finish', help='exchange the pasted redirected URL and record PASS')
     finish.add_argument('--redirect-url', required=True, help='full redirected address')
     fail = sub.add_parser('record-fail', help='record FAIL at the end of the time-box')
@@ -337,7 +342,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.command == 'terminate-token':
         return asyncio.run(cmd_terminate_token())
     if args.command == 'start':
-        return cmd_start()
+        return cmd_start(with_payer_id=args.with_payer_id)
     if args.command == 'finish':
         return asyncio.run(cmd_finish(args.redirect_url))
     return cmd_record_fail(args.reason)
