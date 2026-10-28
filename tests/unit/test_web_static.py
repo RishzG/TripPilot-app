@@ -125,3 +125,19 @@ async def test_a_missing_dist_directory_is_a_no_op(tmp_path: Path) -> None:
     async with await _client(tmp_path / 'not-built') as http_client:
         assert (await http_client.get('/')).status_code == 404
         assert (await http_client.get('/api/ping')).status_code == 200
+
+
+async def test_unmatched_api_paths_are_404_for_every_method(spa_client: httpx.AsyncClient) -> None:
+    """A POST to an API path that does not exist is a 404, not the shell route's 405 (D-15)."""
+    for method in ('POST', 'PUT', 'PATCH', 'DELETE'):
+        response = await spa_client.request(method, '/api/demo/personas/maya/session')
+
+        assert response.status_code == 404, method
+        assert response.json() == {'detail': 'Not Found'}, method
+
+
+async def test_wrong_method_on_a_real_api_route_stays_405(spa_client: httpx.AsyncClient) -> None:
+    """The 404 catch-all must not mask FastAPI's 405 for a route that exists."""
+    response = await spa_client.post('/api/ping')
+
+    assert response.status_code == 405
