@@ -9,6 +9,7 @@ from fastapi import FastAPI, Request, Response
 from trippilot import health
 from trippilot.auth import router as auth_router
 from trippilot.db.engine import configure_event_loop_policy
+from trippilot.demo import router as demo_router
 from trippilot.log_config import configure_logging
 from trippilot.settings import Settings, get_settings
 
@@ -60,4 +61,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(health.router)
     app.include_router(auth_router.router)
+    if resolved.demo_mode:
+        # D-15: the persona routes are not mounted at all unless DEMO_MODE is on (404 otherwise).
+        app.include_router(demo_router.router)
     return app
