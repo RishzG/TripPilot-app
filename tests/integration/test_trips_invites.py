@@ -230,6 +230,25 @@ async def test_preview_for_an_existing_member_says_already_member(
 
     assert response.status_code == 200
     assert response.json()['already_member'] is True
+    assert response.json()['trip_id'] == trip_id
+
+
+async def test_preview_hides_the_trip_id_from_a_non_member(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember
+) -> None:
+    _, organiser_raw = await make_member('Olivia Organiser')
+    _, friend_raw = await make_member('Jo Joiner')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    token = _token_of(await _invite_url(http, organiser_raw, trip_id))
+
+    signed_in = await http.get(f'/api/invites/{token}', headers=_cookie(friend_raw))
+    signed_out = await http.get(f'/api/invites/{token}')
+
+    assert signed_in.json()['trip_id'] is None
+    assert signed_out.json()['trip_id'] is None
+    assert trip_id not in signed_in.text
+    assert trip_id not in signed_out.text
 
 
 async def test_joining_creates_one_active_member_and_one_event(
