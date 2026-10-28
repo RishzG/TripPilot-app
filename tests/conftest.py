@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import os
 import sys
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Callable, Iterator
 
 import httpx
 import psycopg
@@ -66,6 +66,58 @@ def ensure_test_database() -> None:
         exists = conn.execute('SELECT 1 FROM pg_database WHERE datname = %s', (name,)).fetchone()
         if exists is None:
             conn.execute(sql.SQL('CREATE DATABASE {}').format(sql.Identifier(name)))
+
+
+Conn = psycopg.Connection[tuple[object, ...]]
+
+TRUNCATION_EXCLUDED_TABLES = frozenset({'alembic_version', 'ledger_entries'})
+"""Tables never truncated between tests.
+
+`alembic_version` is migration bookkeeping; `ledger_entries` is append-only (a BEFORE TRUNCATE
+trigger from revision 0004 raises) and its trip_id has no foreign key, so CASCADE never reaches it.
+"""
+
+
+def application_tables(conn: Conn) -> list[str]:
+    """Return every public table that tests may truncate, read live from `pg_tables`.
+
+    Reading the list from the catalog means tables added by later revisions (invites, trip
+    events, vault tokens, webhook events, magic links, ...) are included without editing this
+    module.
+    """
+    rows = conn.execute(
+        "SELECT tablename FROM pg_tables WHERE schemaname = 'public' ORDER BY tablename"
+    ).fetchall()
+    return [str(row[0]) for row in rows if row[0] not in TRUNCATION_EXCLUDED_TABLES]
+
+
+def truncate_application_tables(conn: Conn, tables: list[str]) -> None:
+    """Truncate the given tables in one `TRUNCATE ... RESTART IDENTITY CASCADE` statement."""
+    if not tables:
+        return
+    names = sql.SQL(', ').join(sql.Identifier('public', name) for name in tables)
+    conn.execute(sql.SQL('TRUNCATE {} RESTART IDENTITY CASCADE').format(names))
+
+
+@pytest.fixture
+def table_helpers() -> tuple[Callable[[Conn], list[str]], Callable[[Conn, list[str]], None]]:
+    """Return (application_tables, truncate_application_tables) for tests of the isolation rule."""
+    return application_tables, truncate_application_tables
+
+
+@pytest.fixture
+def sync_conn(test_database: str) -> Iterator[Conn]:
+    """Yield an autocommit psycopg connection to the test database for catalog checks."""
+    url = make_url(test_database)
+    with psycopg.connect(
+        host=url.host,
+        port=url.port,
+        user=url.username,
+        password=url.password,
+        dbname=url.database,
+        autocommit=True,
+    ) as conn:
+        yield conn
 
 
 @pytest.fixture(scope='session', autouse=True)
