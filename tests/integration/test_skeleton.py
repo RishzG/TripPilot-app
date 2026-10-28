@@ -137,3 +137,28 @@ async def test_trip_name_of_exactly_80_characters_is_accepted(
     response = await http.post('/api/trips', json={'name': 'x' * 80})
 
     assert response.status_code == 201
+
+
+def test_seam_routers_have_their_prefixes_and_no_routes() -> None:
+    from trippilot.admin import router as admin_router
+    from trippilot.payments import router as payments_router
+
+    assert payments_router.router.prefix == '/api/paypal'
+    assert admin_router.router.prefix == '/api/admin'
+    assert payments_router.router.routes == []
+    assert admin_router.router.routes == []
+
+
+def test_app_mounts_the_seam_routers_without_adding_routes(make_app: MakeApp) -> None:
+    paths = set(make_app(False).openapi()['paths'])
+
+    assert not any(path.startswith(('/api/paypal', '/api/admin')) for path in paths)
+    assert '/api/trips' in paths
+    assert '/api/trips/{trip_id}' in paths
+
+
+def test_realtime_jobs_and_payments_tasks_packages_import() -> None:
+    import importlib
+
+    for name in ('trippilot.realtime', 'trippilot.jobs', 'trippilot.payments.tasks'):
+        assert importlib.import_module(name).__name__ == name

@@ -7,10 +7,12 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 
 from trippilot import health
+from trippilot.admin import router as admin_router
 from trippilot.auth import router as auth_router
 from trippilot.db.engine import configure_event_loop_policy
 from trippilot.demo import router as demo_router
 from trippilot.log_config import configure_logging
+from trippilot.payments import router as payments_router
 from trippilot.settings import Settings, get_settings
 from trippilot.trips import router as trips_router
 
@@ -63,6 +65,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth_router.router)
     app.include_router(trips_router.router)
+    app.include_router(payments_router.router)
+    app.include_router(admin_router.router)
     if resolved.demo_mode:
         # D-15: the persona routes are not mounted at all unless DEMO_MODE is on (404 otherwise).
         app.include_router(demo_router.router)
