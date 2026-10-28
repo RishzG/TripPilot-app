@@ -264,7 +264,6 @@ async def make_member(test_database: str) -> AsyncIterator[MakeMember]:
     """
     from trippilot.auth.models import Account
     from trippilot.auth.sessions import create_session
-
     from trippilot.db.engine import dispose_engine, get_engine, session_factory
 
     async def _make(display_name: str = 'Test Member') -> tuple[Account, str]:

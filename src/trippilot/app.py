@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from fastapi import FastAPI, Request, Response
 
 from trippilot import health
+from trippilot.auth import router as auth_router
 from trippilot.db.engine import configure_event_loop_policy
 from trippilot.log_config import configure_logging
 from trippilot.settings import Settings, get_settings
@@ -58,4 +59,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return response
 
     app.include_router(health.router)
+    app.include_router(auth_router.router)
     return app
