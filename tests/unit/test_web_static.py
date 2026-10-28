@@ -9,6 +9,8 @@ import httpx
 import pytest
 from fastapi import FastAPI
 
+from trippilot.web_static import mount_spa
+
 INDEX_HTML = '<!doctype html><html><body><div id="root"></div></body></html>'
 ASSET_JS = 'console.log("spa");'
 
@@ -26,8 +28,6 @@ def _make_dist(root: Path, *, with_index: bool = True) -> Path:
 
 async def _client(dist: Path) -> httpx.AsyncClient:
     """Return a client for a bare FastAPI app with one /api route and the SPA mounted last."""
-    from trippilot.web_static import mount_spa
-
     app = FastAPI()
 
     @app.get('/api/ping')

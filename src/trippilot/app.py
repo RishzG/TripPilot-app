@@ -17,6 +17,7 @@ from trippilot.log_config import configure_logging
 from trippilot.payments import router as payments_router
 from trippilot.settings import Settings, get_settings
 from trippilot.trips import router as trips_router
+from trippilot.web_static import default_dist_dir, mount_spa
 
 _PAYPAL_ORIGINS = (
     'https://www.sandbox.paypal.com https://www.paypalobjects.com https://api-m.sandbox.paypal.com'
@@ -79,4 +80,5 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     if resolved.demo_mode:
         # D-15: the persona routes are not mounted at all unless DEMO_MODE is on (404 otherwise).
         app.include_router(demo_router.router)
+    mount_spa(app, default_dist_dir())  # last: the catch-all must never shadow an API route
     return app
