@@ -12,6 +12,7 @@ import asyncio
 import contextlib
 import json
 import socket
+import uuid
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
@@ -22,6 +23,7 @@ import pytest
 import uvicorn
 from fastapi import FastAPI
 
+from trippilot.realtime.hub import StreamEvent
 from trippilot.trips.invites import invite_rate_limit
 
 if TYPE_CHECKING:
@@ -315,3 +317,32 @@ async def test_events_still_arrive_after_the_listener_connection_is_killed(
 
     assert event['event'] == 'member.joined'
     assert event['id'] == str(_event_ids(sync_conn, trip_id)[-1])
+
+
+async def test_a_row_seen_by_both_replay_and_live_delivery_is_sent_once(
+    live_server: LiveServer,
+    http: httpx.AsyncClient,
+    make_member: MakeMember,
+    sync_conn: Conn,
+) -> None:
+    _, maya_raw = await make_member('Maya')
+    guests = [await make_member(name) for name in ('Sam', 'Theo', 'Uma')]
+    trip_id = await _start_trip(http, maya_raw)
+    await _join(http, maya_raw, trip_id, guests[0][1])
+    await _join(http, maya_raw, trip_id, guests[1][1])
+    first, second = _event_ids(sync_conn, trip_id)
+
+    async with open_stream(live_server, maya_raw, trip_id, last_event_id=first) as stream:
+        replayed = await stream.next_event()
+        # The same row arrives again through the live path, as it would if it committed
+        # between the subscribe and the replay.
+        live_server.app.state.trip_hub.publish(
+            uuid.UUID(trip_id),
+            StreamEvent(id=second, trip_id=uuid.UUID(trip_id), type='member.joined', payload={}),
+        )
+        await _join(http, maya_raw, trip_id, guests[2][1])
+        following = await stream.next_event()
+
+    assert replayed['id'] == str(second)
+    assert following['id'] == str(_event_ids(sync_conn, trip_id)[-1])
+    assert following['id'] != replayed['id']

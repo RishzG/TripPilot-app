@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 from collections.abc import AsyncIterator, Awaitable, Callable
 from contextlib import asynccontextmanager
 
@@ -15,6 +17,9 @@ from trippilot.demo import router as demo_router
 from trippilot.jobs.app import app as jobs_app
 from trippilot.log_config import configure_logging
 from trippilot.payments import router as payments_router
+from trippilot.realtime import router as realtime_router
+from trippilot.realtime.hub import TripHub
+from trippilot.realtime.listener import listener_dsn, run_listener
 from trippilot.settings import Settings, get_settings
 from trippilot.trips import router as trips_router
 from trippilot.web_static import default_dist_dir, mount_spa
@@ -42,10 +47,25 @@ SECURITY_HEADERS = {
 
 
 @asynccontextmanager
-async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
-    """Open the procrastinate app so web code can defer jobs, and close it on shutdown."""
-    async with jobs_app.open_async():
-        yield
+async def lifespan(app: FastAPI) -> AsyncIterator[None]:
+    """Run the app's background resources: the job queue handle and the LISTEN bridge.
+
+    The procrastinate app is opened so web code can defer jobs. One task per process holds the
+    dedicated LISTEN connection and feeds `app.state.trip_hub`; it is stopped on shutdown.
+    """
+    stop = asyncio.Event()
+    listener = asyncio.create_task(
+        run_listener(listener_dsn(app.state.settings.database_url), app.state.trip_hub, stop),
+        name='trip-events-listener',
+    )
+    try:
+        async with jobs_app.open_async():
+            yield
+    finally:
+        stop.set()
+        listener.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await listener
 
 
 def create_app(settings: Settings | None = None) -> FastAPI:
@@ -61,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app = FastAPI(title='TripPilot', version='0.1.0', lifespan=lifespan)
     app.state.settings = resolved
+    app.state.trip_hub = TripHub()
 
     @app.middleware('http')
     async def add_security_headers(
@@ -76,6 +97,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(auth_router.router)
     app.include_router(trips_router.router)
     app.include_router(payments_router.router)
+    app.include_router(realtime_router.router)
     app.include_router(admin_router.router)
     if resolved.demo_mode:
         # D-15: the persona routes are not mounted at all unless DEMO_MODE is on (404 otherwise).
