@@ -547,3 +547,387 @@ async def test_a_persona_joins_a_persona_trip_with_the_link(
     assert joined.status_code == 200
     assert joined.json() == {'trip_id': trip_id, 'already_member': False}
     assert _scalar(sync_conn, 'SELECT count(*) FROM members WHERE trip_id = %s', (trip_id,)) == 2
+
+
+async def _join(http: httpx.AsyncClient, token: str, raw: str) -> httpx.Response:
+    """Join the trip behind a token as the holder of the session."""
+    return await http.post(f'/api/invites/{token}/join', headers=_cookie(raw))
+
+
+def _status_of(conn: Conn, trip_id: str, account_id: object) -> str | None:
+    """Return a membership's status, or None when there is no row."""
+    row = conn.execute(
+        'SELECT status FROM members WHERE trip_id = %s AND account_id = %s', (trip_id, account_id)
+    ).fetchone()
+    return None if row is None else str(row[0])
+
+
+def _event_types(conn: Conn, trip_id: str) -> list[str]:
+    """Return the trip's event types, oldest first."""
+    rows = conn.execute('SELECT type FROM trip_events WHERE trip_id = %s ORDER BY id', (trip_id,))
+    return [str(row[0]) for row in rows.fetchall()]
+
+
+async def test_the_organiser_can_close_and_reopen_joining(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember
+) -> None:
+    _, organiser_raw = await make_member('Olivia Organiser')
+    _, friend_raw = await make_member('Jo Joiner')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    token = _token_of(await _invite_url(http, organiser_raw, trip_id))
+
+    closed = await http.post(
+        f'/api/trips/{trip_id}/joining', json={'closed': True}, headers=_cookie(organiser_raw)
+    )
+    refused = await _join(http, token, friend_raw)
+    reopened = await http.post(
+        f'/api/trips/{trip_id}/joining', json={'closed': False}, headers=_cookie(organiser_raw)
+    )
+    accepted = await _join(http, token, friend_raw)
+
+    assert closed.status_code == 200
+    assert closed.json() == {'joining_closed': True}
+    assert refused.status_code == 409
+    assert refused.json()['detail'] == 'closed'
+    assert reopened.json() == {'joining_closed': False}
+    assert accepted.status_code == 200
+
+
+async def test_a_member_cannot_close_joining(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember, sync_conn: Conn
+) -> None:
+    _, organiser_raw = await make_member('Olivia Organiser')
+    _, friend_raw = await make_member('Jo Joiner')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    await _join(http, _token_of(await _invite_url(http, organiser_raw, trip_id)), friend_raw)
+
+    response = await http.post(
+        f'/api/trips/{trip_id}/joining', json={'closed': True}, headers=_cookie(friend_raw)
+    )
+
+    assert response.status_code == 403
+    assert _scalar(sync_conn, 'SELECT joining_closed FROM trips WHERE id = %s', (trip_id,)) is False
+
+
+async def test_the_trip_view_reports_whether_joining_is_closed(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember
+) -> None:
+    _, organiser_raw = await make_member('Olivia Organiser')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    before = (await http.get(f'/api/trips/{trip_id}', headers=_cookie(organiser_raw))).json()
+    await http.post(
+        f'/api/trips/{trip_id}/joining', json={'closed': True}, headers=_cookie(organiser_raw)
+    )
+    after = (await http.get(f'/api/trips/{trip_id}', headers=_cookie(organiser_raw))).json()
+
+    assert before['joining_closed'] is False
+    assert after['joining_closed'] is True
+
+
+async def test_a_member_can_leave_and_the_event_is_written(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember, sync_conn: Conn
+) -> None:
+    friend, friend_raw = await make_member('Jo Joiner')
+    _, organiser_raw = await make_member('Olivia Organiser')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    token = _token_of(await _invite_url(http, organiser_raw, trip_id))
+    await _join(http, token, friend_raw)
+
+    response = await http.post(f'/api/trips/{trip_id}/leave', headers=_cookie(friend_raw))
+
+    assert response.status_code == 200
+    assert response.json() == {'account_id': str(friend.id), 'status': 'left'}
+    assert _status_of(sync_conn, trip_id, friend.id) == 'left'
+    assert _event_types(sync_conn, trip_id) == ['member.joined', 'member.left']
+    assert (await http.get(f'/api/trips/{trip_id}', headers=_cookie(friend_raw))).status_code == 404
+    assert (await _join(http, token, friend_raw)).status_code == 200
+
+
+async def test_the_organiser_cannot_leave_their_own_trip(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember, sync_conn: Conn
+) -> None:
+    organiser, organiser_raw = await make_member('Olivia Organiser')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+
+    response = await http.post(f'/api/trips/{trip_id}/leave', headers=_cookie(organiser_raw))
+
+    assert response.status_code == 409
+    assert _status_of(sync_conn, trip_id, organiser.id) == 'active'
+    assert _event_types(sync_conn, trip_id) == []
+
+
+async def test_a_stranger_cannot_leave_a_trip_they_are_not_in(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember
+) -> None:
+    _, organiser_raw = await make_member('Olivia Organiser')
+    _, stranger_raw = await make_member('Sam Stranger')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+
+    response = await http.post(f'/api/trips/{trip_id}/leave', headers=_cookie(stranger_raw))
+
+    assert response.status_code == 404
+
+
+async def test_the_organiser_removes_a_member_and_the_event_is_written(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember, sync_conn: Conn
+) -> None:
+    friend, friend_raw = await make_member('Jo Joiner')
+    _, organiser_raw = await make_member('Olivia Organiser')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    await _join(http, _token_of(await _invite_url(http, organiser_raw, trip_id)), friend_raw)
+
+    response = await http.post(
+        f'/api/trips/{trip_id}/members/{friend.id}/remove', headers=_cookie(organiser_raw)
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {'account_id': str(friend.id), 'status': 'removed'}
+    assert _status_of(sync_conn, trip_id, friend.id) == 'removed'
+    assert _event_types(sync_conn, trip_id) == ['member.joined', 'member.removed']
+    assert (await http.get(f'/api/trips/{trip_id}', headers=_cookie(friend_raw))).status_code == 404
+
+
+async def test_a_non_organiser_cannot_remove_anyone(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember, sync_conn: Conn
+) -> None:
+    organiser, organiser_raw = await make_member('Olivia Organiser')
+    _, friend_raw = await make_member('Jo Joiner')
+    other, other_raw = await make_member('Pat Pal')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    token = _token_of(await _invite_url(http, organiser_raw, trip_id))
+    await _join(http, token, friend_raw)
+    await _join(http, token, other_raw)
+
+    response = await http.post(
+        f'/api/trips/{trip_id}/members/{other.id}/remove', headers=_cookie(friend_raw)
+    )
+
+    assert response.status_code == 403
+    assert _status_of(sync_conn, trip_id, other.id) == 'active'
+    assert _status_of(sync_conn, trip_id, organiser.id) == 'active'
+
+
+async def test_the_organiser_cannot_remove_themselves_or_a_non_member(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember
+) -> None:
+    organiser, organiser_raw = await make_member('Olivia Organiser')
+    stranger, _ = await make_member('Sam Stranger')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+
+    on_self = await http.post(
+        f'/api/trips/{trip_id}/members/{organiser.id}/remove', headers=_cookie(organiser_raw)
+    )
+    on_stranger = await http.post(
+        f'/api/trips/{trip_id}/members/{stranger.id}/remove', headers=_cookie(organiser_raw)
+    )
+
+    assert on_self.status_code == 409
+    assert on_stranger.status_code == 404
+
+
+async def test_removal_sticks_until_the_organiser_adds_the_member_back(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember, sync_conn: Conn
+) -> None:
+    friend, friend_raw = await make_member('Jo Joiner')
+    _, organiser_raw = await make_member('Olivia Organiser')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    old_token = _token_of(await _invite_url(http, organiser_raw, trip_id))
+    await _join(http, old_token, friend_raw)
+    await http.post(
+        f'/api/trips/{trip_id}/members/{friend.id}/remove', headers=_cookie(organiser_raw)
+    )
+
+    on_old = await _join(http, old_token, friend_raw)
+    reset = await http.post(f'/api/trips/{trip_id}/invite/reset', headers=_cookie(organiser_raw))
+    new_token = _token_of(reset.json()['url'])
+    on_new = await _join(http, new_token, friend_raw)
+    readded = await http.post(
+        f'/api/trips/{trip_id}/members/{friend.id}/readd', headers=_cookie(organiser_raw)
+    )
+    opened = await http.get(f'/api/trips/{trip_id}', headers=_cookie(friend_raw))
+    joined_again = await _join(http, new_token, friend_raw)
+
+    assert (on_old.status_code, on_old.json()['detail']) == (409, 'removed')
+    assert (on_new.status_code, on_new.json()['detail']) == (409, 'removed')
+    assert readded.status_code == 200
+    assert readded.json() == {'account_id': str(friend.id), 'status': 'active'}
+    assert opened.status_code == 200
+    assert joined_again.json()['already_member'] is True
+    assert _status_of(sync_conn, trip_id, friend.id) == 'active'
+    assert _event_types(sync_conn, trip_id) == ['member.joined', 'member.removed', 'member.joined']
+    payload = _scalar(
+        sync_conn,
+        'SELECT payload FROM trip_events WHERE trip_id = %s ORDER BY id DESC LIMIT 1',
+        (trip_id,),
+    )
+    assert payload['readded'] is True
+    assert payload['account_id'] == str(friend.id)
+
+
+async def test_only_the_organiser_can_add_a_removed_member_back(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember, sync_conn: Conn
+) -> None:
+    _, friend_raw = await make_member('Jo Joiner')
+    other, other_raw = await make_member('Pat Pal')
+    _, organiser_raw = await make_member('Olivia Organiser')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    token = _token_of(await _invite_url(http, organiser_raw, trip_id))
+    await _join(http, token, friend_raw)
+    await _join(http, token, other_raw)
+    await http.post(
+        f'/api/trips/{trip_id}/members/{other.id}/remove', headers=_cookie(organiser_raw)
+    )
+
+    by_member = await http.post(
+        f'/api/trips/{trip_id}/members/{other.id}/readd', headers=_cookie(friend_raw)
+    )
+    by_removed = await http.post(
+        f'/api/trips/{trip_id}/members/{other.id}/readd', headers=_cookie(other_raw)
+    )
+
+    assert by_member.status_code == 403
+    assert by_removed.status_code == 404
+    assert _status_of(sync_conn, trip_id, other.id) == 'removed'
+
+
+async def test_adding_back_a_member_who_is_not_removed_is_a_conflict(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember
+) -> None:
+    friend, friend_raw = await make_member('Jo Joiner')
+    stranger, _ = await make_member('Sam Stranger')
+    _, organiser_raw = await make_member('Olivia Organiser')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    await _join(http, _token_of(await _invite_url(http, organiser_raw, trip_id)), friend_raw)
+
+    active = await http.post(
+        f'/api/trips/{trip_id}/members/{friend.id}/readd', headers=_cookie(organiser_raw)
+    )
+    unknown = await http.post(
+        f'/api/trips/{trip_id}/members/{stranger.id}/readd', headers=_cookie(organiser_raw)
+    )
+
+    assert active.status_code == 409
+    assert unknown.status_code == 404
+
+
+async def test_adding_back_respects_the_twelve_member_cap(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember, sync_conn: Conn
+) -> None:
+    removed, removed_raw = await make_member('Remy Removed')
+    _, organiser_raw = await make_member('Olivia Organiser')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    token = _token_of(await _invite_url(http, organiser_raw, trip_id))
+    await _join(http, token, removed_raw)
+    await http.post(
+        f'/api/trips/{trip_id}/members/{removed.id}/remove', headers=_cookie(organiser_raw)
+    )
+    for index in range(11):
+        _, raw = await make_member(f'Friend {index}')
+        assert (await _join(http, token, raw)).status_code == 200
+
+    response = await http.post(
+        f'/api/trips/{trip_id}/members/{removed.id}/readd', headers=_cookie(organiser_raw)
+    )
+
+    assert response.status_code == 409
+    assert _status_of(sync_conn, trip_id, removed.id) == 'removed'
+
+
+async def test_only_the_organiser_sees_the_removed_members(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember
+) -> None:
+    _, friend_raw = await make_member('Jo Joiner')
+    other, other_raw = await make_member('Pat Pal')
+    _, organiser_raw = await make_member('Olivia Organiser')
+    http = make_client(app)
+    trip_id = await _start_trip(http, organiser_raw)
+    token = _token_of(await _invite_url(http, organiser_raw, trip_id))
+    await _join(http, token, friend_raw)
+    await _join(http, token, other_raw)
+    await http.post(
+        f'/api/trips/{trip_id}/members/{other.id}/remove', headers=_cookie(organiser_raw)
+    )
+
+    as_organiser = (await http.get(f'/api/trips/{trip_id}', headers=_cookie(organiser_raw))).json()
+    as_member = (await http.get(f'/api/trips/{trip_id}', headers=_cookie(friend_raw))).json()
+
+    assert as_organiser['removed_members'] == [
+        {'account_id': str(other.id), 'display_name': 'Pat Pal'}
+    ]
+    assert [m['display_name'] for m in as_organiser['members']] == [
+        'Olivia Organiser',
+        'Jo Joiner',
+    ]
+    assert as_member['removed_members'] is None
+    assert 'Pat Pal' not in str(as_member)
+
+
+async def test_my_trips_lists_the_active_memberships_with_counts(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember
+) -> None:
+    _, organiser_raw = await make_member('Olivia Organiser')
+    _, friend_raw = await make_member('Jo Joiner')
+    http = make_client(app)
+    mine = await _start_trip(http, friend_raw, 'Jo own trip')
+    theirs = await _start_trip(http, organiser_raw, 'Tahoe weekend')
+    other = await _start_trip(http, organiser_raw, 'Not for Jo')
+    await _join(http, _token_of(await _invite_url(http, organiser_raw, theirs)), friend_raw)
+
+    response = await http.get('/api/trips', headers=_cookie(friend_raw))
+
+    assert response.status_code == 200
+    by_id = {trip['id']: trip for trip in response.json()}
+    assert set(by_id) == {mine, theirs}
+    assert other not in by_id
+    assert by_id[mine] == {
+        'id': mine,
+        'name': 'Jo own trip',
+        'role': 'organiser',
+        'member_count': 1,
+        'demo_mode': False,
+    }
+    assert by_id[theirs]['role'] == 'member'
+    assert by_id[theirs]['member_count'] == 2
+
+
+async def test_my_trips_drops_trips_the_member_left_or_was_removed_from(
+    app: FastAPI, make_client: MakeClient, make_member: MakeMember
+) -> None:
+    friend, friend_raw = await make_member('Jo Joiner')
+    _, organiser_raw = await make_member('Olivia Organiser')
+    http = make_client(app)
+    left_trip = await _start_trip(http, organiser_raw, 'Left this one')
+    removed_trip = await _start_trip(http, organiser_raw, 'Removed from this one')
+    for trip in (left_trip, removed_trip):
+        link = await _invite_url(http, organiser_raw, trip)
+        assert (await _join(http, _token_of(link), friend_raw)).status_code == 200
+    await http.post(f'/api/trips/{left_trip}/leave', headers=_cookie(friend_raw))
+    await http.post(
+        f'/api/trips/{removed_trip}/members/{friend.id}/remove', headers=_cookie(organiser_raw)
+    )
+
+    response = await http.get('/api/trips', headers=_cookie(friend_raw))
+
+    assert response.status_code == 200
+    assert response.json() == []
+
+
+async def test_my_trips_needs_a_session(app: FastAPI, make_client: MakeClient) -> None:
+    http = make_client(app)
+
+    response = await http.get('/api/trips')
+
+    assert response.status_code == 401

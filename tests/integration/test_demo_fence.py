@@ -9,6 +9,7 @@ import base64
 import hashlib
 from typing import TYPE_CHECKING
 
+import httpx
 import psycopg
 from fastapi import Response
 
@@ -269,3 +270,95 @@ async def test_demo_routes_do_not_exist_when_demo_mode_is_off(
     assert not any(str(getattr(route, 'path', '')).startswith('/api/demo') for route in app.routes)
     assert _count(sync_conn, 'accounts') == 0
     assert _count(sync_conn, 'sessions') == 0
+
+
+async def _non_demo_trip_with_member_row(
+    sync_conn: Conn, make_member: MakeMember, persona_http: httpx.AsyncClient
+) -> str:
+    """Insert a non-demo trip organised by a member plus an ACTIVE membership for the persona."""
+    organiser, _ = await make_member('Olivia Organiser')
+    persona_id = (await persona_http.get('/api/me')).json()['id']
+    row = sync_conn.execute(
+        'INSERT INTO trips (name, organiser_account_id, demo_mode) VALUES (%s, %s, false)'
+        ' RETURNING id',
+        ('Real trip', organiser.id),
+    ).fetchone()
+    assert row is not None
+    trip_id = str(row[0])
+    sync_conn.execute(
+        "INSERT INTO members (trip_id, account_id, role) VALUES (%s, %s, 'organiser')",
+        (trip_id, organiser.id),
+    )
+    sync_conn.execute(
+        'INSERT INTO members (trip_id, account_id, role, status)'
+        " VALUES (%s, %s, 'member', 'active')",
+        (trip_id, persona_id),
+    )
+    return trip_id
+
+
+async def test_a_persona_lists_only_demo_trips(
+    persona_client: PersonaClient, make_member: MakeMember, sync_conn: Conn
+) -> None:
+    maya = await persona_client('maya')
+    demo_trip = (await maya.post('/api/trips', json={'name': 'Demo trip'})).json()['id']
+    real_trip = await _non_demo_trip_with_member_row(sync_conn, make_member, maya)
+
+    response = await maya.get('/api/trips')
+
+    assert response.status_code == 200
+    ids = [trip['id'] for trip in response.json()]
+    assert ids == [demo_trip]
+    assert real_trip not in ids
+    assert response.json()[0]['demo_mode'] is True
+
+
+async def test_a_persona_cannot_open_a_non_demo_trip_even_with_a_membership_row(
+    persona_client: PersonaClient, make_member: MakeMember, sync_conn: Conn
+) -> None:
+    maya = await persona_client('maya')
+    real_trip = await _non_demo_trip_with_member_row(sync_conn, make_member, maya)
+
+    response = await maya.get(f'/api/trips/{real_trip}')
+
+    assert response.status_code == 404
+
+
+async def test_a_persona_cannot_join_a_non_demo_trip_through_its_link(
+    persona_client: PersonaClient,
+    make_member: MakeMember,
+    make_app: MakeApp,
+    make_client: MakeClient,
+    sync_conn: Conn,
+) -> None:
+    _, organiser_raw = await make_member('Olivia Organiser')
+    member_http = make_client(make_app(False))
+    created = await member_http.post(
+        '/api/trips', json={'name': 'Real trip'}, headers=_cookie(organiser_raw)
+    )
+    trip_id = created.json()['id']
+    link = await member_http.get(f'/api/trips/{trip_id}/invite', headers=_cookie(organiser_raw))
+    token = link.json()['url'].rsplit('/join/', 1)[1]
+    sam = await persona_client('sam')
+
+    response = await sam.post(f'/api/invites/{token}/join')
+
+    assert response.status_code == 404
+    row = sync_conn.execute(
+        'SELECT count(*) FROM members WHERE trip_id = %s', (trip_id,)
+    ).fetchone()
+    assert row is not None
+    assert row[0] == 1
+
+
+async def test_a_persona_cannot_use_the_controls_of_a_non_demo_trip(
+    persona_client: PersonaClient, make_member: MakeMember, sync_conn: Conn
+) -> None:
+    maya = await persona_client('maya')
+    real_trip = await _non_demo_trip_with_member_row(sync_conn, make_member, maya)
+
+    invite = await maya.get(f'/api/trips/{real_trip}/invite')
+    leave = await maya.post(f'/api/trips/{real_trip}/leave')
+
+    assert invite.status_code == 404
+    assert leave.status_code == 404
