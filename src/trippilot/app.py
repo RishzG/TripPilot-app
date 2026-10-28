@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request, Response
 
@@ -11,6 +12,7 @@ from trippilot.admin import router as admin_router
 from trippilot.auth import router as auth_router
 from trippilot.db.engine import configure_event_loop_policy
 from trippilot.demo import router as demo_router
+from trippilot.jobs.app import app as jobs_app
 from trippilot.log_config import configure_logging
 from trippilot.payments import router as payments_router
 from trippilot.settings import Settings, get_settings
@@ -38,6 +40,13 @@ SECURITY_HEADERS = {
 """Headers set on every response (threat T-01-05)."""
 
 
+@asynccontextmanager
+async def lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    """Open the procrastinate app so web code can defer jobs, and close it on shutdown."""
+    async with jobs_app.open_async():
+        yield
+
+
 def create_app(settings: Settings | None = None) -> FastAPI:
     """Build the FastAPI app.
 
@@ -49,7 +58,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     configure_logging()
     configure_event_loop_policy()
 
-    app = FastAPI(title='TripPilot', version='0.1.0')
+    app = FastAPI(title='TripPilot', version='0.1.0', lifespan=lifespan)
     app.state.settings = resolved
 
     @app.middleware('http')

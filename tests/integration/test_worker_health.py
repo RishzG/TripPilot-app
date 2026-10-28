@@ -7,12 +7,11 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trippilot.auth.models import Account, OAuthState, SessionRow
+from trippilot.jobs.tasks import purge_expired_auth_rows
 
 
 async def test_purge_deletes_expired_auth_rows_and_keeps_live_ones(db: AsyncSession) -> None:
     """Expired sessions and oauth_states rows go; the live session survives."""
-    from trippilot.jobs.tasks import purge_expired_auth_rows
-
     account = Account(kind='member', display_name='Purge Test')
     db.add(account)
     await db.flush()

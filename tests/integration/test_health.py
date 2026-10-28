@@ -37,6 +37,7 @@ async def test_health_reaches_postgres(client: httpx.AsyncClient) -> None:
         'status': 'ok',
         'git_sha': get_settings().app_git_sha,
         'db': 'ok',
+        'worker_last_seen_seconds': None,
     }
 
 
@@ -63,6 +64,7 @@ async def test_health_reports_db_error_without_leaking_details() -> None:
         'status': 'ok',
         'git_sha': get_settings().app_git_sha,
         'db': 'error',
+        'worker_last_seen_seconds': None,
     }
     assert 'hunter2' not in response.text
     assert 'secret-db' not in response.text
