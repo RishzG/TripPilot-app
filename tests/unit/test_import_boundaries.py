@@ -2,7 +2,8 @@
 
 Two layers:
 
-- import-linter runs `importlinter.ini` (contracts must not import payments; 01-08 extends it).
+- import-linter runs `importlinter.ini` (contracts must not import payments; the payments I/O
+  boundary and the `cryptography` rule were added by 01-08).
 - A source scan covers packages no import-linter contract names yet (health, app, db, ...):
   nothing outside `trippilot.payments` may import `payments.client`, `payments.token_cache` or
   `payments.vault_store`. The scan parses imports with `ast`, so multi-line, aliased, relative
@@ -12,6 +13,7 @@ Two layers:
 from __future__ import annotations
 
 import ast
+import configparser
 from pathlib import Path
 
 import pytest
@@ -125,3 +127,110 @@ def test_matcher_flags_protected_imports(source: str, module: str) -> None:
 )
 def test_matcher_ignores_allowed_imports(source: str, module: str) -> None:
     assert find_protected_imports(source, module) == []
+
+
+VAULT_STORE = PAYMENTS_DIR / 'vault_store.py'
+EXPECTED_CONTRACTS = {'contracts-are-leaf', 'payments-io-boundary', 'cryptography-only-in-payments'}
+
+
+def find_cryptography_imports(source: str) -> list[int]:
+    """Return the line numbers where `source` imports `cryptography` (any form)."""
+    hits: list[int] = []
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            if any(alias.name.split('.')[0] == 'cryptography' for alias in node.names):
+                hits.append(node.lineno)
+        elif (
+            isinstance(node, ast.ImportFrom)
+            and not node.level
+            and (node.module or '').split('.')[0] == 'cryptography'
+        ):
+            hits.append(node.lineno)
+    return sorted(hits)
+
+
+def test_cryptography_is_imported_only_by_vault_store() -> None:
+    importers: list[Path] = []
+    for path in sorted((SRC_ROOT / 'trippilot').rglob('*.py')):
+        if find_cryptography_imports(path.read_text(encoding='utf-8')):
+            importers.append(path)
+
+    assert importers == [VAULT_STORE]
+
+
+@pytest.mark.parametrize(
+    'source',
+    [
+        'import cryptography',
+        'import cryptography.fernet as f',
+        'from cryptography.fernet import Fernet',
+        'from cryptography import fernet',
+    ],
+)
+def test_cryptography_matcher_flags_imports(source: str) -> None:
+    assert find_cryptography_imports(source) == [1]
+
+
+@pytest.mark.parametrize(
+    'source',
+    [
+        'import httpx',
+        '"""Mentions import cryptography in prose."""',
+        '# from cryptography.fernet import Fernet',
+        'from .cryptography import thing',
+    ],
+)
+def test_cryptography_matcher_ignores_other_code(source: str) -> None:
+    assert find_cryptography_imports(source) == []
+
+
+def _contract_options() -> dict[str, dict[str, set[str]]]:
+    parser = configparser.ConfigParser()
+    parser.read(REPO_ROOT / 'importlinter.ini', encoding='utf-8')
+    contracts: dict[str, dict[str, set[str]]] = {}
+    for section in parser.sections():
+        if not section.startswith('importlinter:contract:'):
+            continue
+        name = section.removeprefix('importlinter:contract:')
+        contracts[name] = {
+            key: {line.strip() for line in value.splitlines() if line.strip()}
+            for key, value in parser[section].items()
+        }
+    return contracts
+
+
+def test_importlinter_declares_the_payments_contracts() -> None:
+    contracts = _contract_options()
+
+    assert set(contracts) >= EXPECTED_CONTRACTS
+    boundary = contracts['payments-io-boundary']
+    assert {
+        'trippilot.auth',
+        'trippilot.trips',
+        'trippilot.realtime',
+        'trippilot.demo',
+        'trippilot.admin',
+        'trippilot.jobs',
+        'trippilot.health',
+    } <= boundary['source_modules']
+    assert boundary['forbidden_modules'] == {
+        'trippilot.payments.client',
+        'trippilot.payments.token_cache',
+        'trippilot.payments.vault_store',
+    }
+    assert 'trippilot.payments' not in boundary['source_modules']
+    leaf = contracts['contracts-are-leaf']
+    assert {
+        'trippilot.payments',
+        'trippilot.auth',
+        'trippilot.trips',
+        'trippilot.realtime',
+        'trippilot.demo',
+        'trippilot.admin',
+        'trippilot.jobs',
+        'trippilot.db',
+    } <= leaf['forbidden_modules']
+    crypto = contracts['cryptography-only-in-payments']
+    assert crypto['forbidden_modules'] == {'cryptography'}
+    assert 'trippilot.payments' not in crypto['source_modules']
+    assert 'trippilot.auth' in crypto['source_modules']

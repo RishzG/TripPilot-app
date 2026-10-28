@@ -5,6 +5,7 @@
       "**",
       "!dist",
       "!src/lib/api-types.ts",
+      "!openapi.json",
       "!node_modules",
       "!test-results",
       "!playwright-report"

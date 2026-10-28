@@ -3,9 +3,12 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from pathlib import Path
 
 import httpx
 import psycopg
+from alembic.config import Config
+from alembic.script import ScriptDirectory
 from fastapi import FastAPI
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError, OperationalError
@@ -14,6 +17,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from trippilot.app import create_app
 from trippilot.db.engine import get_db
 from trippilot.settings import get_settings
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+
+
+def _single_migration_head() -> str:
+    """Return the one Alembic head on disk, failing if the chain has branched."""
+    heads = ScriptDirectory.from_config(Config(str(REPO_ROOT / 'alembic.ini'))).get_heads()
+    assert len(heads) == 1
+    return heads[0]
 
 
 async def test_health_reaches_postgres(client: httpx.AsyncClient) -> None:
@@ -25,6 +37,7 @@ async def test_health_reaches_postgres(client: httpx.AsyncClient) -> None:
         'status': 'ok',
         'git_sha': get_settings().app_git_sha,
         'db': 'ok',
+        'worker_last_seen_seconds': None,
     }
 
 
@@ -51,6 +64,7 @@ async def test_health_reports_db_error_without_leaking_details() -> None:
         'status': 'ok',
         'git_sha': get_settings().app_git_sha,
         'db': 'error',
+        'worker_last_seen_seconds': None,
     }
     assert 'hunter2' not in response.text
     assert 'secret-db' not in response.text
@@ -125,12 +139,12 @@ async def _regclass(db: AsyncSession, name: str) -> object:
 
 
 async def test_database_is_migrated_to_the_single_head(db: AsyncSession) -> None:
-    """After the session fixture runs, alembic_version holds exactly 0002_procrastinate."""
+    """After the session fixture runs, alembic_version holds exactly the one head on disk."""
     assert await _regclass(db, 'public.alembic_version') is not None
 
     versions = (await db.execute(text('SELECT version_num FROM alembic_version'))).scalars().all()
 
-    assert list(versions) == ['0002_procrastinate']
+    assert list(versions) == [_single_migration_head()]
 
 
 async def test_skeleton_tables_have_the_planned_columns(db: AsyncSession) -> None:
@@ -200,7 +214,7 @@ def test_each_test_starts_with_empty_application_tables_part_two(sync_conn: Conn
     assert count[0] == 0
     version = sync_conn.execute('SELECT version_num FROM alembic_version').fetchone()
     assert version is not None
-    assert version[0] == '0002_procrastinate'
+    assert version[0] == _single_migration_head()
 
 
 def test_truncation_list_is_read_from_the_catalog(
