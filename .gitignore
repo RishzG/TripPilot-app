@@ -179,3 +179,31 @@ cython_debug/
 #  refer to https://docs.cursor.com/context/ignore-files
 .cursorignore
 .cursorindexingignore
+
+# TripPilot
+# Secrets (.env is ignored above; also ignore variants but keep the template)
+.env.*
+!.env.example
+
+# PayPal sandbox test output (contains tokens and test results)
+vault_token.json
+venmo_results.json
+
+# Node
+node_modules/
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# GSD planning docs (local-only, commit_docs: false)
+.planning/
+
+# Phase 1 generated / local-only output
+scripts/spikes/results/
+web/openapi.json
+web/src/lib/api-types.ts
+web/test-results/
+web/playwright-report/

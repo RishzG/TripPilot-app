@@ -1,0 +1,57 @@
+[project]
+name = "trippilot"
+version = "0.1.0"
+description = "AI group-trip planner with PayPal Group Checkout"
+requires-python = ">=3.12"
+dependencies = [
+    "alembic==1.20.1",
+    "cryptography==50.0.2",
+    "fastapi==0.162.0",
+    "httpx==0.28.1",
+    "procrastinate==3.10.0",
+    "psycopg[binary,pool]==3.3.6",
+    "pydantic==2.14.1",
+    "pydantic-settings==2.16.1",
+    "sqlalchemy>=2.1,<2.2",
+    "structlog==26.1.0",
+    "uvicorn[standard]==0.54.0",
+]
+
+[build-system]
+requires = ["uv_build>=0.11,<0.12"]
+build-backend = "uv_build"
+
+[tool.ruff]
+target-version = "py312"
+line-length = 100
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "S"]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["S101"]
+
+[tool.ruff.format]
+quote-style = "single"
+
+[tool.mypy]
+strict = true
+plugins = ['pydantic.mypy']
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ['tests']
+asyncio_default_fixture_loop_scope = 'session'
+
+[dependency-groups]
+dev = [
+    "hypothesis==6.170.12",
+    "import-linter==2.15",
+    "mypy>=2.4.0",
+    "pytest>=9.1.1",
+    "pytest-asyncio==1.4.1",
+    "pytest-cov==7.1.0",
+    "respx==0.23.1",
+    "ruff>=0.17.2",
+    "time-machine==3.6.0",
+]
