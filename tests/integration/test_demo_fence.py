@@ -13,7 +13,7 @@ import psycopg
 from fastapi import Response
 
 if TYPE_CHECKING:
-    from conftest import MakeApp, MakeClient, MakeMember
+    from conftest import MakeApp, MakeClient, MakeMember, PersonaClient
 
 
 Conn = psycopg.Connection[tuple[object, ...]]
@@ -144,7 +144,6 @@ async def test_signout_without_a_session_is_still_204(
 
 async def test_session_cookie_flags_follow_the_environment() -> None:
     from trippilot.auth.sessions import clear_session_cookie, set_session_cookie
-
     from trippilot.settings import get_settings
 
     base = get_settings()
@@ -168,3 +167,105 @@ async def test_session_cookie_flags_follow_the_environment() -> None:
     assert 'max-age=0' in clearing
     assert 'httponly' in clearing
     assert 'samesite=lax' in clearing
+
+
+async def test_persona_list_has_the_fixed_cast_of_six(
+    make_app: MakeApp, make_client: MakeClient
+) -> None:
+    http = make_client(make_app(True))
+
+    response = await http.get('/api/demo/personas')
+
+    assert response.status_code == 200
+    personas = response.json()
+    assert [(p['slug'], p['name'], p['avatar_key'], p['note']) for p in personas] == [
+        ('maya', 'Maya', 'maya', 'tight budget'),
+        ('sam', 'Sam', 'sam', 'wants adventure'),
+        ('ana', 'Ana', 'ana', 'foodie, flexible dates'),
+        ('leo', 'Leo', 'leo', 'last-minute planner'),
+        ('priya', 'Priya', 'priya', 'organised, loves cabins'),
+        ('jules', 'Jules', 'jules', 'joins late, easygoing'),
+    ]
+
+
+async def test_persona_sign_in_sets_an_http_only_lax_cookie(
+    make_app: MakeApp, make_client: MakeClient
+) -> None:
+    http = make_client(make_app(True))
+
+    response = await http.post('/api/demo/personas/maya/session')
+
+    assert response.status_code == 200
+    set_cookie = response.headers['set-cookie'].lower()
+    assert 'tp_session=' in set_cookie
+    assert 'httponly' in set_cookie
+    assert 'samesite=lax' in set_cookie
+    assert response.json()['kind'] == 'persona'
+    assert response.json()['is_persona'] is True
+    assert response.json()['display_name'] == 'Maya'
+
+
+async def test_persona_account_and_session_are_flagged_and_reused(
+    persona_client: PersonaClient, sync_conn: Conn
+) -> None:
+    await persona_client('maya')
+    await persona_client('maya')
+
+    accounts = sync_conn.execute(
+        'SELECT kind, persona_slug, display_name, avatar_kind, avatar_key FROM accounts'
+    ).fetchall()
+    assert accounts == [('persona', 'maya', 'Maya', 'illustrated', 'maya')]
+    sessions = sync_conn.execute('SELECT is_persona FROM sessions').fetchall()
+    assert sessions == [(True,), (True,)]
+
+
+async def test_persona_cookie_authenticates_a_fresh_client(
+    persona_client: PersonaClient, make_app: MakeApp, make_client: MakeClient
+) -> None:
+    signed_in = await persona_client('sam')
+    raw = signed_in.cookies.get('tp_session')
+    assert raw is not None
+    fresh = make_client(make_app(True))
+
+    response = await fresh.get('/api/me', headers=_cookie(raw))
+
+    assert response.status_code == 200
+    assert response.json()['kind'] == 'persona'
+    assert response.json()['is_persona'] is True
+    assert response.json()['display_name'] == 'Sam'
+
+
+async def test_switching_persona_is_signing_in_as_another(
+    persona_client: PersonaClient, sync_conn: Conn
+) -> None:
+    maya = await persona_client('maya')
+    sam = await persona_client('sam')
+
+    assert (await maya.get('/api/me')).json()['display_name'] == 'Maya'
+    assert (await sam.get('/api/me')).json()['display_name'] == 'Sam'
+    assert _count(sync_conn, 'accounts') == 2
+
+
+async def test_unknown_persona_slug_is_404(make_app: MakeApp, make_client: MakeClient) -> None:
+    http = make_client(make_app(True))
+
+    response = await http.post('/api/demo/personas/nobody/session')
+
+    assert response.status_code == 404
+
+
+async def test_demo_routes_do_not_exist_when_demo_mode_is_off(
+    make_app: MakeApp, make_client: MakeClient, sync_conn: Conn
+) -> None:
+    app = make_app(False)
+    http = make_client(app)
+
+    listing = await http.get('/api/demo/personas')
+    sign_in = await http.post('/api/demo/personas/maya/session')
+
+    assert listing.status_code == 404
+    assert sign_in.status_code == 404
+    assert 'set-cookie' not in sign_in.headers
+    assert not any(str(getattr(route, 'path', '')).startswith('/api/demo') for route in app.routes)
+    assert _count(sync_conn, 'accounts') == 0
+    assert _count(sync_conn, 'sessions') == 0

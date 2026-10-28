@@ -278,3 +278,23 @@ async def make_member(test_database: str) -> AsyncIterator[MakeMember]:
 
     yield _make
     await dispose_engine()
+
+
+PersonaClient = Callable[[str], Awaitable[httpx.AsyncClient]]
+
+
+@pytest.fixture
+def persona_client(make_app: MakeApp, make_client: MakeClient) -> PersonaClient:
+    """Return `persona_client(slug)`: an httpx client already signed in as that persona.
+
+    The client talks to a demo-mode app and keeps the `tp_session` cookie in its own jar.
+    """
+    app = make_app(True)
+
+    async def _sign_in(slug: str) -> httpx.AsyncClient:
+        http_client = make_client(app)
+        response = await http_client.post(f'/api/demo/personas/{slug}/session')
+        assert response.status_code == 200, response.text
+        return http_client
+
+    return _sign_in
