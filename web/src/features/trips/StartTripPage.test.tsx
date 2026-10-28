@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import type { Mock } from 'vitest';
@@ -10,6 +11,7 @@ vi.mock('../../lib/api', async (importOriginal) => {
   return { ...actual, api: { GET: vi.fn(), POST: vi.fn() } };
 });
 
+const get = api.GET as unknown as Mock;
 const post = api.POST as unknown as Mock;
 
 function reply(status: number, data?: unknown) {
@@ -103,7 +105,15 @@ describe('StartTripPage', () => {
     const router = createMemoryRouter(buildRoutes(), {
       initialEntries: ['/trips/new'],
     });
-    render(<RouterProvider router={router} />);
+    get.mockResolvedValue({
+      error: { detail: 'Not signed in' },
+      response: { ok: false, status: 401 } as Response,
+    });
+    render(
+      <QueryClientProvider client={new QueryClient()}>
+        <RouterProvider router={router} />
+      </QueryClientProvider>,
+    );
     expect(
       await screen.findByRole('heading', { name: 'Start a trip' }),
     ).toBeTruthy();
