@@ -5,6 +5,7 @@ import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
 import { api, unwrap } from '../../lib/api';
 import type { components } from '../../lib/api-types';
+import { useTripEvents } from './useTripEvents';
 
 type TripData = components['schemas']['TripView'];
 type MemberData = components['schemas']['MemberView'];
@@ -226,8 +227,51 @@ function InviteCard({
   );
 }
 
+/**
+ * Who arrived after the first paint (D-24): their rows animate in once and a screen reader hears
+ * `<Name> joined the trip`. Rows present on first paint never animate. Uses the render-phase state
+ * adjustment React recommends, so a new row's very first commit already carries its entrance.
+ */
+function useArrivals(members: MemberData[]): {
+  entered: ReadonlySet<string>;
+  announcement: string;
+} {
+  const current = new Set(members.map((member) => member.account_id));
+  const [state, setState] = useState({
+    seen: current,
+    entered: new Set<string>() as ReadonlySet<string>,
+    announcement: '',
+  });
+  const arrived = members.filter(
+    (member) => !state.seen.has(member.account_id),
+  );
+  const departed = [...state.seen].some((id) => !current.has(id));
+  if (arrived.length > 0 || departed) {
+    setState({
+      seen: current,
+      entered: new Set(
+        [
+          ...state.entered,
+          ...arrived.map((member) => member.account_id),
+        ].filter((id) => current.has(id)),
+      ),
+      announcement:
+        arrived.length > 0
+          ? arrived
+              .map((member) => `${member.display_name} joined the trip`)
+              .join('. ')
+          : state.announcement,
+    });
+  }
+  return { entered: state.entered, announcement: state.announcement };
+}
+
+const ENTERING_ROW =
+  'motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2';
+
 function MemberRow({
   member,
+  entering,
   canRemove,
   armedId,
   onArm,
@@ -236,6 +280,7 @@ function MemberRow({
   removing,
 }: {
   member: MemberData;
+  entering: boolean;
   canRemove: boolean;
   armedId: string | null;
   onArm: (accountId: string) => void;
@@ -245,7 +290,9 @@ function MemberRow({
 }) {
   const confirming = armedId === member.account_id;
   return (
-    <li className="flex min-h-14 flex-wrap items-center gap-3 px-4 py-2">
+    <li
+      className={`flex min-h-14 flex-wrap items-center gap-3 px-4 py-2 ${entering ? ENTERING_ROW : ''}`}
+    >
       <Initials name={member.display_name} />
       <span className="min-w-0 flex-1 truncate text-base font-semibold">
         {member.display_name}
@@ -293,6 +340,7 @@ function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
   const leave = useArmed<true>();
   const [failed, setFailed] = useState(false);
   const [lastRemoved, setLastRemoved] = useState<string | null>(null);
+  const { entered, announcement } = useArrivals(trip.members);
 
   function patchTrip(update: (current: TripData) => TripData) {
     queryClient.setQueryData<TripData>(['trip', tripId], (current) =>
@@ -405,6 +453,9 @@ function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
       <h2 id="whos-in" className="mt-6 text-xl font-semibold leading-[1.2]">
         Who's in
       </h2>
+      <div aria-live="polite" className="sr-only">
+        {announcement}
+      </div>
       <ul
         aria-labelledby="whos-in"
         className="mt-4 divide-y divide-border rounded-xl border border-border"
@@ -413,6 +464,7 @@ function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
           <MemberRow
             key={member.account_id}
             member={member}
+            entering={entered.has(member.account_id)}
             canRemove={isOrganiser}
             armedId={remove.armed}
             onArm={remove.arm}
@@ -520,10 +572,12 @@ function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
 
 /**
  * The trip page (D-24): name, who is in, the organiser's invite link and membership controls.
- * Live updates arrive in 01-09; until then the lists change from each action's own answer.
+ * It stays live: the trip event stream refetches the trip when anyone joins, leaves or is
+ * removed, and each action also updates the lists from its own answer.
  */
 export function TripPage() {
   const { tripId = '' } = useParams();
+  useTripEvents(tripId);
   const trip = useQuery({
     queryKey: ['trip', tripId],
     queryFn: async () =>
