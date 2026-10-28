@@ -1,5 +1,6 @@
 import type { RouteObject } from 'react-router';
 import { Link } from 'react-router';
+import { JoinPage } from './JoinPage';
 import { StartTripPage } from './StartTripPage';
 import { TripPage } from './TripPage';
 
@@ -25,4 +26,5 @@ export const tripRoutes: RouteObject[] = [
   { index: true, element: <HomePlaceholder /> },
   { path: 'trips/new', element: <StartTripPage /> },
   { path: 'trips/:tripId', element: <TripPage /> },
+  { path: 'join/:token', element: <JoinPage /> },
 ];
