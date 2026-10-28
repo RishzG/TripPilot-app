@@ -52,7 +52,7 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
 
 def build_settings(**overrides: Any) -> Settings:
     """Construct Settings without reading a local .env file."""
-    return Settings(_env_file=None, **overrides)  # type: ignore[call-arg]  # pydantic-settings init kwarg
+    return Settings(_env_file=None, **overrides)
 
 
 def production_kwargs(**overrides: Any) -> dict[str, Any]:

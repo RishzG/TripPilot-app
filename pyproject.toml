@@ -24,6 +24,8 @@ build-backend = "uv_build"
 [tool.ruff]
 target-version = "py312"
 line-length = 100
+# One-off sandbox probes owned by plan 01-02; not application code
+extend-exclude = ["scripts/spikes"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B", "SIM", "ASYNC", "S"]
