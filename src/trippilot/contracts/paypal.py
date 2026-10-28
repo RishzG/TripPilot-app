@@ -41,6 +41,32 @@ class PayPalError(Exception):
         text = f'PayPal returned HTTP {status}: {name or ""} {message or ""}'.strip()
         super().__init__(text)
 
+    @classmethod
+    def from_body(cls, status: int, body: object) -> PayPalError:
+        """Build an error from a decoded JSON error body, keeping only the safe fields.
+
+        Understands both REST errors (`name`, `message`, `debug_id`, `details`) and OAuth
+        errors (`error`, `error_description`). Any other shape yields an error with no fields.
+        """
+        if not isinstance(body, Mapping):
+            return cls(status)
+        name = body.get('name') or body.get('error')
+        message = body.get('message') or body.get('error_description')
+        debug_id = body.get('debug_id')
+        raw_details = body.get('details')
+        details = (
+            [item for item in raw_details if isinstance(item, Mapping)]
+            if isinstance(raw_details, list)
+            else []
+        )
+        return cls(
+            status,
+            name if isinstance(name, str) else None,
+            message if isinstance(message, str) else None,
+            debug_id if isinstance(debug_id, str) else None,
+            details,
+        )
+
     def summary(self) -> dict[str, object]:
         """Return the loggable fields: status, name, message, debug id and issue codes."""
         issues = [str(item['issue']) for item in self.details if 'issue' in item]
