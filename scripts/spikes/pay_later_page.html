@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>TripPilot Pay Later spike (D-31)</title>
+    <style>
+      body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 2rem auto; padding: 0 1rem; }
+      .buttons { display: flex; flex-direction: column; gap: 0.75rem; margin: 1.5rem 0; }
+      pre { background: #f4f4f5; padding: 0.75rem; overflow-x: auto; white-space: pre-wrap; }
+      #status { font-weight: 600; }
+    </style>
+  </head>
+  <body>
+    <h1>Pay Later spike</h1>
+    <p>
+      Sandbox only. A $12.00 order is created on the server with intent AUTHORIZE when you click
+      the button. Sign in with a US sandbox personal account and choose Pay in 4.
+    </p>
+
+    <div class="buttons">
+      <paypal-pay-later-button id="paylater-button" hidden></paypal-pay-later-button>
+    </div>
+    <p id="status">Loading the PayPal SDK...</p>
+    <pre id="detail"></pre>
+
+    <script>
+      // Public client id and amount are injected by pay_later.py; the secret never reaches the page.
+      const CLIENT_ID = __CLIENT_ID_JSON__;
+      const AMOUNT = __AMOUNT_JSON__;
+
+      const statusEl = document.querySelector("#status");
+      const detailEl = document.querySelector("#detail");
+
+      function setStatus(text) {
+        statusEl.textContent = text;
+      }
+
+      function addDetail(text) {
+        detailEl.textContent += text + "\n";
+      }
+
+      async function postJson(url, body) {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: body === undefined ? undefined : JSON.stringify(body),
+        });
+        const data = await response.json();
+        if (!response.ok) {
+          throw new Error(url + " failed: " + JSON.stringify(data));
+        }
+        return data;
+      }
+
+      // Called by the SDK script tag's onload event (pattern from the official v6 sample,
+      // paypal-examples/v6-web-sdk-sample-integration, paypalPayments/oneTimePayment/recommended).
+      async function onPayPalWebSdkLoaded() {
+        try {
+          const sdkInstance = await window.paypal.createInstance({
+            clientId: CLIENT_ID,
+            components: ["paypal-payments"],
+            pageType: "checkout",
+          });
+
+          let methods;
+          try {
+            methods = await sdkInstance.findEligibleMethods({
+              currencyCode: "USD",
+              amount: AMOUNT,
+            });
+          } catch (error) {
+            addDetail("findEligibleMethods with amount failed (" + error.message + "); retrying without it");
+            methods = await sdkInstance.findEligibleMethods({ currencyCode: "USD" });
+          }
+
+          const report = {};
+          for (const name of ["paypal", "paylater", "credit"]) {
+            report[name] = methods.isEligible(name);
+            if (report[name]) {
+              report[name + "_details"] = methods.getDetails(name);
+            }
+          }
+          addDetail("eligibility: " + JSON.stringify(report, null, 2));
+          await postJson("/eligibility", report);
+
+          if (!methods.isEligible("paylater")) {
+            setStatus("Pay Later not eligible");
+            return;
+          }
+          configurePayLaterButton(sdkInstance, methods.getDetails("paylater"));
+          setStatus("Pay Later is eligible. Click the Pay Later button.");
+        } catch (error) {
+          setStatus("Failed to initialize the PayPal Web SDK: " + error.message);
+          console.error(error);
+        }
+      }
+
+      const paymentSessionOptions = {
+        async onApprove(data) {
+          setStatus("Approved " + data.orderId + "; authorizing on the server...");
+          try {
+            const result = await postJson("/orders/" + encodeURIComponent(data.orderId) + "/authorize");
+            setStatus(
+              "Authorized. Order " + data.orderId + ", authorization " +
+                result.authorizationId + ", status " + result.status +
+                ". Tell the assistant: approved.",
+            );
+          } catch (error) {
+            setStatus("Authorize failed: " + error.message);
+          }
+        },
+        onCancel(data) {
+          setStatus("Cancelled (order " + (data.orderId ?? "none") + ")");
+        },
+        onError(error) {
+          setStatus("onError: " + error.message);
+          console.error(error);
+        },
+      };
+
+      function configurePayLaterButton(sdkInstance, details) {
+        const session = sdkInstance.createPayLaterOneTimePaymentSession(paymentSessionOptions);
+        const button = document.querySelector("#paylater-button");
+        button.productCode = details.productCode;
+        button.countryCode = details.countryCode;
+        button.removeAttribute("hidden");
+
+        button.addEventListener("click", async () => {
+          try {
+            // Do not await createOrder: awaiting can lose the browser's transient activation.
+            const createOrderPromise = postJson("/orders").then((data) => ({ orderId: data.orderId }));
+            await session.start({ presentationMode: "auto" }, createOrderPromise);
+          } catch (error) {
+            setStatus("Pay Later click failure: " + error.message);
+            console.error(error);
+          }
+        });
+      }
+    </script>
+
+    <script
+      async
+      src="https://www.sandbox.paypal.com/web-sdk/v6/core"
+      onload="onPayPalWebSdkLoaded()"
+    ></script>
+  </body>
+</html>
