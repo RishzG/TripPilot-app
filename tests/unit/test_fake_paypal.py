@@ -6,12 +6,12 @@ from collections.abc import AsyncIterator
 
 import pytest
 from pydantic import SecretStr
-from trippilot.payments.fake import FakePayPal
 
 from trippilot.contracts.money import Cents
 from trippilot.contracts.paypal import PayPalError, PayPalGateway
 from trippilot.payments import aclose_paypal_gateway, get_paypal_gateway, reset_paypal_gateway
 from trippilot.payments.client import PayPalClient
+from trippilot.payments.fake import FakePayPal
 from trippilot.settings import get_settings
 
 
