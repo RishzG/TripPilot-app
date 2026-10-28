@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
+import ast
 import asyncio
 import base64
 import uuid
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -322,3 +324,22 @@ async def test_save_and_remove_each_write_a_ledger_row_without_token_or_customer
 def test_a_store_without_keys_is_refused() -> None:
     with pytest.raises(VaultError):
         VaultStore([])
+
+
+SRC_ROOT = Path(__file__).resolve().parents[2] / 'src' / 'trippilot'
+MONEY_USES_OF_A_SAVED_TOKEN = {'use_token', 'create_order_authorize_vaulted'}
+
+
+def test_no_phase_one_code_uses_a_saved_token_to_move_money() -> None:
+    """ACC-03 prohibition: members' saved tokens are stored, never used for a hold or charge."""
+    call_sites: list[str] = []
+    for path in sorted(SRC_ROOT.rglob('*.py')):
+        for node in ast.walk(ast.parse(path.read_text(encoding='utf-8'))):
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr in MONEY_USES_OF_A_SAVED_TOKEN
+            ):
+                call_sites.append(f'{path.relative_to(SRC_ROOT)}:{node.lineno}')
+
+    assert call_sites == []
