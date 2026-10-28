@@ -1,4 +1,4 @@
-"""Trip routes: start and open a trip, the organiser's invite link, and the invite preview/join."""
+"""Trip routes: start, list and open trips, membership controls, invite link, preview, join."""
 
 from __future__ import annotations
 
@@ -19,10 +19,17 @@ from trippilot.trips.invites import (
 )
 from trippilot.trips.service import (
     TRIP_NAME_MAX_LENGTH,
+    MemberStatus,
+    TripSummary,
     TripView,
     create_trip,
     get_trip_view,
+    leave_trip,
+    list_trips,
+    readd_member,
+    remove_member,
     require_organiser_trip,
+    set_joining_closed,
 )
 
 router = APIRouter(tags=['trips'])
@@ -47,6 +54,18 @@ class InviteLink(BaseModel):
     url: str
 
 
+class JoiningRequest(BaseModel):
+    """Body of POST /api/trips/{trip_id}/joining."""
+
+    closed: bool
+
+
+class JoiningState(BaseModel):
+    """Whether new people can still join through the link."""
+
+    joining_closed: bool
+
+
 class JoinResponse(BaseModel):
     """Response of POST /api/invites/{token}/join."""
 
@@ -63,6 +82,12 @@ async def start_trip(
     created = CreatedTrip(id=trip.id, name=trip.name)
     await db.commit()
     return created
+
+
+@router.get('/api/trips')
+async def my_trips(account: CurrentAccount, db: DbSession) -> list[TripSummary]:
+    """List the caller's active trips; a persona sees demo trips only."""
+    return await list_trips(db, account)
 
 
 @router.get('/api/trips/{trip_id}')
@@ -93,6 +118,45 @@ async def reset_invite_link(
     link = InviteLink(url=invite_url(settings, invite))
     await db.commit()
     return link
+
+
+@router.post('/api/trips/{trip_id}/joining')
+async def set_joining(
+    trip_id: uuid.UUID, body: JoiningRequest, account: CurrentAccount, db: DbSession
+) -> JoiningState:
+    """Close or reopen joining for new people (organiser)."""
+    closed = await set_joining_closed(db, trip_id, account, closed=body.closed)
+    state = JoiningState(joining_closed=closed)
+    await db.commit()
+    return state
+
+
+@router.post('/api/trips/{trip_id}/leave')
+async def leave(trip_id: uuid.UUID, account: CurrentAccount, db: DbSession) -> MemberStatus:
+    """Leave the trip; the organiser cannot (409)."""
+    result = await leave_trip(db, trip_id, account)
+    await db.commit()
+    return result
+
+
+@router.post('/api/trips/{trip_id}/members/{account_id}/remove')
+async def remove(
+    trip_id: uuid.UUID, account_id: uuid.UUID, account: CurrentAccount, db: DbSession
+) -> MemberStatus:
+    """Remove a member; they cannot rejoin until added back (organiser, UD-4)."""
+    result = await remove_member(db, trip_id, account, account_id)
+    await db.commit()
+    return result
+
+
+@router.post('/api/trips/{trip_id}/members/{account_id}/readd')
+async def readd(
+    trip_id: uuid.UUID, account_id: uuid.UUID, account: CurrentAccount, db: DbSession
+) -> MemberStatus:
+    """Add a removed member back as an active member (organiser, UD-4)."""
+    result = await readd_member(db, trip_id, account, account_id)
+    await db.commit()
+    return result
 
 
 @router.get('/api/invites/{token}', tags=['invites'], dependencies=[Depends(invite_rate_limit)])
