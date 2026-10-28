@@ -19,12 +19,10 @@ from collections.abc import Callable
 
 import psycopg
 import structlog
-from psycopg import sql
 from sqlalchemy.exc import SQLAlchemyError
 
 from trippilot.db.engine import get_engine, session_factory
 from trippilot.jobs.app import libpq_conninfo
-from trippilot.realtime.events import TRIP_EVENTS_CHANNEL
 from trippilot.realtime.hub import StreamEvent, TripHub
 from trippilot.realtime.models import TripEvent
 
@@ -38,6 +36,8 @@ INITIAL_BACKOFF_SECONDS = 0.25
 MAX_BACKOFF_SECONDS = 10.0
 
 log = structlog.get_logger(__name__)
+
+_LISTEN_STATEMENT = 'LISTEN trip_events'  # the channel `append_trip_event` notifies
 
 
 async def load_event(event_id: int) -> StreamEvent | None:
@@ -74,7 +74,7 @@ async def _listen_once(
     async with await psycopg.AsyncConnection.connect(
         dsn, autocommit=True, application_name=LISTENER_APPLICATION_NAME
     ) as conn:
-        await conn.execute(sql.SQL('LISTEN {}').format(sql.Identifier(TRIP_EVENTS_CHANNEL)))
+        await conn.execute(_LISTEN_STATEMENT)
         log.info('trip_events_listening')
         on_listening()
         # Anything committed while there was no connection produced no notification we saw.
