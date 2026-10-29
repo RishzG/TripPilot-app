@@ -20,7 +20,8 @@ from fastapi import FastAPI
 from pydantic import SecretStr
 
 from trippilot.app import create_app
-from trippilot.payments import get_paypal_gateway
+from trippilot.db.engine import session_factory
+from trippilot.payments import get_paypal_gateway, pool
 from trippilot.payments.fake import FakePayPal
 from trippilot.settings import Settings, get_settings
 
@@ -449,8 +450,6 @@ async def _trip(make_member: MakeMember, conn: Conn) -> uuid.UUID:
 async def test_lease_buyers_returns_the_requested_number_of_enrolled_buyers(
     db: AsyncSession, make_member: MakeMember, sync_conn: Conn
 ) -> None:
-    from trippilot.payments import pool
-
     _seed_buyers(sync_conn, ['maya', 'sam', 'ana', 'leo'])
     trip = await _trip(make_member, sync_conn)
 
@@ -465,8 +464,6 @@ async def test_lease_buyers_returns_the_requested_number_of_enrolled_buyers(
 async def test_a_second_trip_gets_only_the_buyers_left_and_never_one_already_leased(
     db: AsyncSession, make_member: MakeMember, sync_conn: Conn
 ) -> None:
-    from trippilot.payments import pool
-
     _seed_buyers(sync_conn, ['maya', 'sam', 'ana', 'leo'])
     first_trip = await _trip(make_member, sync_conn)
     second_trip = await _trip(make_member, sync_conn)
@@ -485,9 +482,6 @@ async def test_a_second_trip_gets_only_the_buyers_left_and_never_one_already_lea
 async def test_two_concurrent_leases_never_share_a_buyer(
     db: AsyncSession, make_member: MakeMember, sync_conn: Conn
 ) -> None:
-    from trippilot.db.engine import session_factory
-    from trippilot.payments import pool
-
     _seed_buyers(sync_conn, ['maya', 'sam', 'ana', 'leo'])
     first_trip = await _trip(make_member, sync_conn)
     second_trip = await _trip(make_member, sync_conn)
@@ -521,8 +515,6 @@ async def test_two_concurrent_leases_never_share_a_buyer(
 async def test_pending_and_retired_buyers_are_never_leased(
     db: AsyncSession, make_member: MakeMember, sync_conn: Conn
 ) -> None:
-    from trippilot.payments import pool
-
     _seed_buyers(sync_conn, ['maya'])
     _seed_buyers(sync_conn, ['sam'], status='pending')
     _seed_buyers(sync_conn, ['ana'], status='retired')
@@ -536,8 +528,6 @@ async def test_pending_and_retired_buyers_are_never_leased(
 async def test_a_released_lease_makes_the_buyer_available_again(
     db: AsyncSession, make_member: MakeMember, sync_conn: Conn
 ) -> None:
-    from trippilot.payments import pool
-
     _seed_buyers(sync_conn, ['maya'])
     first_trip = await _trip(make_member, sync_conn)
     second_trip = await _trip(make_member, sync_conn)
@@ -564,8 +554,6 @@ async def test_a_released_lease_makes_the_buyer_available_again(
 async def test_an_expired_lease_no_longer_blocks_the_buyer(
     db: AsyncSession, make_member: MakeMember, sync_conn: Conn
 ) -> None:
-    from trippilot.payments import pool
-
     _seed_buyers(sync_conn, ['maya'])
     first_trip = await _trip(make_member, sync_conn)
     second_trip = await _trip(make_member, sync_conn)
@@ -580,8 +568,6 @@ async def test_an_expired_lease_no_longer_blocks_the_buyer(
 async def test_releasing_an_unknown_or_already_released_lease_is_a_quiet_no_op(
     db: AsyncSession, make_member: MakeMember, sync_conn: Conn
 ) -> None:
-    from trippilot.payments import pool
-
     _seed_buyers(sync_conn, ['maya'])
     trip = await _trip(make_member, sync_conn)
     (held,) = await pool.lease_buyers(db, trip, 1)

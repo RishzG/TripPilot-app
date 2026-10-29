@@ -1,8 +1,9 @@
 """HTTP routes under /api/paypal: public config and a member's saved PayPal (ACC-03).
 
 Plan 01-21 created this seam, 01-08 adds the vault routes, 01-13 includes the webhook router and
-01-14 adds the pool routes. Every vault route needs a signed-in account. No response carries a
-payment token id, a customer id or anyone else's saved-PayPal status (D-08).
+01-14 adds the pool routes. Every vault route needs a signed-in account and every pool route needs a
+team admin (D-37). No response carries a payment token id, a customer id or anyone else's
+saved-PayPal status (D-08).
 """
 
 from __future__ import annotations
@@ -14,10 +15,21 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, ConfigDict, Field
 
+from trippilot.admin.deps import AdminAccount
 from trippilot.auth.deps import AppSettings, CurrentAccount, CurrentSession, DbSession
 from trippilot.contracts.paypal import PayPalError, PayPalGateway
 from trippilot.payments import get_paypal_gateway
 from trippilot.payments.ledger import Actor
+from trippilot.payments.models import PoolBuyer
+from trippilot.payments.pool import (
+    POOL_OWNER_KIND,
+    PoolError,
+    active_vault_token_id,
+    add_pool_buyer,
+    get_pool_buyer,
+    list_pool,
+    mark_enrolled,
+)
 from trippilot.payments.vault_flow import (
     VaultFlowError,
     complete_setup,
@@ -160,3 +172,131 @@ async def remove_vault(
         raise _paypal_unavailable(error) from error
     await db.commit()
     return VaultStatus(saved=False)
+
+
+# -- pool buyers (plan 01-14): team admins enrol the simulated friends' saved PayPal -------------
+
+SLUG_PATTERN = r'^[a-z][a-z0-9-]{0,31}$'
+EMAIL_PATTERN = r'^[^@\s]{1,100}@[^@\s]{1,100}$'
+
+
+class AddPoolBuyerRequest(BaseModel):
+    """Body of POST /pool/buyers: the buyer's slug, the persona it backs and its sandbox email."""
+
+    slug: str = Field(pattern=SLUG_PATTERN)
+    persona_slug: str | None = Field(default=None, pattern=SLUG_PATTERN)
+    sandbox_email: str | None = Field(default=None, max_length=254, pattern=EMAIL_PATTERN)
+
+
+class PoolBuyerOut(BaseModel):
+    """One pool buyer as the enrolment page sees it. Never carries a token id of any kind."""
+
+    slug: str
+    persona_slug: str | None
+    sandbox_email: str | None
+    status: Literal['pending', 'enrolled', 'retired']
+
+
+def _pool_out(buyer: PoolBuyer) -> PoolBuyerOut:
+    """Allow-list a buyer row into its response."""
+    return PoolBuyerOut.model_validate(
+        {
+            'slug': buyer.slug,
+            'persona_slug': buyer.persona_slug,
+            'sandbox_email': buyer.sandbox_email,
+            'status': buyer.status,
+        }
+    )
+
+
+async def _enrollable_buyer(db: DbSession, settings: AppSettings, slug: str) -> PoolBuyer:
+    """Return this environment's buyer for `slug`, or raise 404 (unknown) or 409 (retired)."""
+    buyer = await get_pool_buyer(db, slug, settings.app_env)
+    if buyer is None:
+        raise HTTPException(status.HTTP_404_NOT_FOUND, 'not_found')
+    if buyer.status == 'retired':
+        raise HTTPException(status.HTTP_409_CONFLICT, 'retired')
+    return buyer
+
+
+@router.get('/pool/buyers')
+async def list_pool_buyers(
+    _admin: AdminAccount, db: DbSession, settings: AppSettings
+) -> list[PoolBuyerOut]:
+    """List this environment's pool buyers: slug, persona, sandbox email and status only."""
+    return [_pool_out(buyer) for buyer in await list_pool(db, settings.app_env)]
+
+
+@router.post('/pool/buyers', status_code=status.HTTP_201_CREATED)
+async def create_pool_buyer(
+    body: AddPoolBuyerRequest, _admin: AdminAccount, db: DbSession, settings: AppSettings
+) -> PoolBuyerOut:
+    """Add a pending pool buyer to this environment; 409 when the slug already exists."""
+    try:
+        buyer = await add_pool_buyer(
+            db, body.slug, body.persona_slug, body.sandbox_email, settings.app_env
+        )
+    except PoolError as error:
+        raise HTTPException(error.status_code, error.code) from error
+    await db.commit()
+    return _pool_out(buyer)
+
+
+@router.post('/pool/{slug}/setup-token')
+async def create_pool_setup_token(
+    slug: str,
+    _admin: AdminAccount,
+    db: DbSession,
+    gateway: Gateway,
+    settings: AppSettings,
+    _store: Store,
+) -> VaultSetupTokenResponse:
+    """Start saving PayPal for a pool buyer: a setup token bound to that buyer (30 minutes)."""
+    buyer = await _enrollable_buyer(db, settings, slug)
+    try:
+        setup_token = await start_setup(db, gateway, POOL_OWNER_KIND, buyer.id, settings)
+    except PayPalError as error:
+        raise _paypal_unavailable(error) from error
+    await db.commit()
+    return VaultSetupTokenResponse(vault_setup_token=setup_token)
+
+
+@router.post('/pool/{slug}/payment-token')
+async def create_pool_payment_token(
+    slug: str,
+    body: VaultPaymentTokenRequest,
+    admin: AdminAccount,
+    db: DbSession,
+    gateway: Gateway,
+    settings: AppSettings,
+    store: Store,
+) -> PoolBuyerOut:
+    """Finish enrolling a pool buyer: store its approved token and mark the buyer enrolled.
+
+    Re-enrolling replaces the earlier token (one active row). The setup token must have been
+    issued for this same buyer; one issued for another buyer or for an account is 403.
+    """
+    buyer = await _enrollable_buyer(db, settings, slug)
+    try:
+        await complete_setup(
+            db,
+            gateway,
+            store,
+            POOL_OWNER_KIND,
+            buyer.id,
+            body.vault_setup_token,
+            Actor(kind='member', id=str(admin.id)),
+        )
+        token_id = await active_vault_token_id(db, buyer.id)
+        if token_id is None:  # complete_setup just saved one; this is a defensive guard
+            raise HTTPException(status.HTTP_500_INTERNAL_SERVER_ERROR, 'not_saved')
+        await mark_enrolled(db, slug, token_id)
+    except VaultFlowError as error:
+        raise HTTPException(error.status_code, error.code) from error
+    except PoolError as error:
+        raise HTTPException(error.status_code, error.code) from error
+    except PayPalError as error:
+        raise _paypal_unavailable(error) from error
+    await db.commit()
+    await db.refresh(buyer)
+    return _pool_out(buyer)
