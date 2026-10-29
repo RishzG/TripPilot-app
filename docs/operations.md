@@ -52,6 +52,8 @@ uv run python scripts/ops/staging_power.py status
 uv run python scripts/ops/staging_power.py resume
 uv run python scripts/ops/staging_power.py suspend
 uv run python scripts/ops/staging_power.py restart-proof --timeout 75
+uv run python scripts/ops/staging_power.py env-keys
+uv run python scripts/ops/staging_power.py set-env KEY VALUE
 ```
 
 - `status` prints web, worker and database state; `staging: active` only when none of the three is
@@ -62,6 +64,22 @@ uv run python scripts/ops/staging_power.py restart-proof --timeout 75
 - `suspend` sets `STAGING_ACTIVE=false` first, then suspends worker, web and Postgres.
 - `restart-proof` creates a smoke trip, restarts web and worker, waits for a new `started_at` and a
   worker heartbeat under 60 seconds, then reads the trip back. Non-zero exit on any failure.
+- `env-keys` lists the environment variable names (never values) set on web and worker.
+- `set-env KEY VALUE` sets one variable on both web and worker. **A Render restart does not apply a
+  changed variable; only a new deploy does** (found 2026-10-29 setting `PAYPAL_WEBHOOK_ID`). After
+  `set-env`, redeploy the current main with
+  `gh workflow run release.yml --repo RishzG/TripPilot-app --ref main` (staging resumed), then check
+  the change took effect.
+
+## Staging PayPal webhook (01-13)
+
+The staging sandbox app has one webhook, id `0Y2839891X535641R`, for
+`https://trippilot-staging-web.onrender.com/api/paypal/webhooks`, subscribed to the authorization,
+capture, order, payout, vault and consent-revoked event types (registered 2026-10-29 by
+`scripts/spikes/register_webhook.py`, which reuses the webhook for an exact URL instead of creating
+a second one). Its id is `PAYPAL_WEBHOOK_ID` on both staging services. Without it the endpoint
+answers 503 and PayPal retries for up to 3 days; an unsigned request answers 400
+`verification_failed`.
 
 The script runs `gh` against `RishzG/TripPilot-app` explicitly (this checkout's default `gh`
 repository is the wrong upstream); set `GH_REPO` to override it.
