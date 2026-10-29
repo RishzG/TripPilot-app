@@ -1,10 +1,13 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy } from 'lucide-react';
+import { Check, Copy, X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 import { toast } from 'sonner';
+import { Avatar, shownName } from '../../components/Avatar';
 import { api, unwrap } from '../../lib/api';
 import type { components } from '../../lib/api-types';
+import { useMe } from '../auth/useMe';
+import { SavePayPalButton } from '../paypal/SavePayPalButton';
 import { useTripEvents } from './useTripEvents';
 
 type TripData = components['schemas']['TripView'];
@@ -42,23 +45,84 @@ function useArmed<T>() {
   return { armed, arm, disarm };
 }
 
-function initialsOf(name: string): string {
-  return name
-    .split(/\s+/)
-    .filter((part) => part.length > 0)
-    .slice(0, 2)
-    .map((part) => part.charAt(0).toUpperCase())
-    .join('');
+const DISMISSED_KEY_PREFIX = 'tp-save-banner-dismissed:';
+
+function bannerDismissed(tripId: string): boolean {
+  try {
+    return localStorage.getItem(`${DISMISSED_KEY_PREFIX}${tripId}`) !== null;
+  } catch {
+    return false;
+  }
 }
 
-function Initials({ name }: { name: string }) {
+/**
+ * The quiet reminder for a member who skipped saving PayPal (D-06): one dismissible banner with the
+ * save control, never an email. It needs the member's OWN saved status from the vault status
+ * endpoint (D-08); nobody else's status is requested or shown. It is hidden when PayPal is saved,
+ * when the status cannot be read, for demo personas (their PayPal comes from the buyer pool) and
+ * after Dismiss, which is remembered per trip in localStorage.
+ */
+function SaveBanner({ tripId }: { tripId: string }) {
+  const queryClient = useQueryClient();
+  const me = useMe();
+  const [dismissed, setDismissed] = useState(() => bannerDismissed(tripId));
+  const [failed, setFailed] = useState(false);
+  const isMember = me.data?.kind === 'member' && !me.data.is_persona;
+  const status = useQuery({
+    queryKey: ['vault-status'],
+    queryFn: async () => unwrap(await api.GET('/api/paypal/vault/status')),
+    enabled: isMember,
+    retry: false,
+  });
+
+  if (!isMember || dismissed || status.data?.saved !== false) {
+    return null;
+  }
+
+  function dismiss() {
+    try {
+      localStorage.setItem(`${DISMISSED_KEY_PREFIX}${tripId}`, '1');
+    } catch {
+      // Private mode: the banner is hidden for this visit only.
+    }
+    setDismissed(true);
+  }
+
   return (
-    <span
-      aria-hidden="true"
-      className="flex size-10 shrink-0 items-center justify-center rounded-full bg-muted text-sm font-semibold"
+    <section
+      aria-label="Save PayPal"
+      className="mt-6 rounded-xl border border-l-4 border-border border-l-money p-4"
     >
-      {initialsOf(name)}
-    </span>
+      <div className="flex items-start gap-2">
+        <p className="min-w-0 flex-1 text-base">
+          Save PayPal so you can commit in one tap
+        </p>
+        <button
+          type="button"
+          aria-label="Dismiss"
+          onClick={dismiss}
+          className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg"
+        >
+          <X aria-hidden="true" size={20} />
+        </button>
+      </div>
+      <div className="mt-2">
+        <SavePayPalButton
+          setupTokenPath="/api/paypal/vault/setup-token"
+          paymentTokenPath="/api/paypal/vault/payment-token"
+          onSaved={() => {
+            setFailed(false);
+            void queryClient.invalidateQueries({ queryKey: ['vault-status'] });
+          }}
+          onFailed={() => setFailed(true)}
+        />
+      </div>
+      {failed && (
+        <p role="alert" className="mt-2 text-sm text-destructive">
+          {SUBMIT_FAILED_MESSAGE}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -258,7 +322,7 @@ function useArrivals(members: MemberData[]): {
       announcement:
         arrived.length > 0
           ? arrived
-              .map((member) => `${member.display_name} joined the trip`)
+              .map((member) => `${shownName(member)} joined the trip`)
               .join('. ')
           : state.announcement,
     });
@@ -293,9 +357,13 @@ function MemberRow({
     <li
       className={`flex min-h-14 flex-wrap items-center gap-3 px-4 py-2 ${entering ? ENTERING_ROW : ''}`}
     >
-      <Initials name={member.display_name} />
+      <Avatar
+        name={shownName(member)}
+        kind={member.avatar_kind}
+        avatarKey={member.avatar_key}
+      />
       <span className="min-w-0 flex-1 truncate text-base font-semibold">
-        {member.display_name}
+        {shownName(member)}
       </span>
       {member.role === 'organiser' && (
         <span className="rounded-lg border border-border bg-muted px-2 text-sm font-semibold">
@@ -306,7 +374,7 @@ function MemberRow({
         member.role !== 'organiser' &&
         (confirming ? (
           <span className="flex w-full flex-wrap items-center gap-2">
-            <span className="text-sm">Remove {member.display_name}?</span>
+            <span className="text-sm">Remove {shownName(member)}?</span>
             <button
               type="button"
               disabled={removing}
@@ -316,13 +384,13 @@ function MemberRow({
               Yes, remove
             </button>
             <button type="button" onClick={onDisarm} className={QUIET_BUTTON}>
-              Keep {member.display_name}
+              Keep {shownName(member)}
             </button>
           </span>
         ) : (
           <button
             type="button"
-            aria-label={`Remove ${member.display_name}`}
+            aria-label={`Remove ${shownName(member)}`}
             onClick={() => onArm(member.account_id)}
             className={QUIET_BUTTON}
           >
@@ -366,7 +434,7 @@ function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
       if (gone === undefined) {
         return;
       }
-      setLastRemoved(gone.display_name);
+      setLastRemoved(shownName(gone));
       patchTrip((current) => ({
         ...current,
         members: current.members.filter((m) => m.account_id !== account_id),
@@ -400,7 +468,14 @@ function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
           ...current,
           members: [
             ...current.members,
-            { account_id, display_name: back.display_name, role: 'member' },
+            {
+              account_id,
+              display_name: back.display_name,
+              nickname: null,
+              avatar_kind: 'initials',
+              avatar_key: null,
+              role: 'member',
+            },
           ],
           removed_members: (current.removed_members ?? []).filter(
             (m) => m.account_id !== account_id,
@@ -440,6 +515,7 @@ function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
           {SUBMIT_FAILED_MESSAGE}
         </p>
       )}
+      <SaveBanner tripId={tripId} />
       {isOrganiser && (
         <div className="mt-6">
           <InviteCard
@@ -504,7 +580,11 @@ function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
                 key={person.account_id}
                 className="flex min-h-14 items-center gap-3 px-4 py-2"
               >
-                <Initials name={person.display_name} />
+                <Avatar
+                  name={person.display_name}
+                  kind="initials"
+                  avatarKey={null}
+                />
                 <span
                   id={`removed-${person.account_id}`}
                   className="min-w-0 flex-1 truncate text-base font-semibold"

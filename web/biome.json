@@ -5,6 +5,7 @@
       "**",
       "!dist",
       "!src/lib/api-types.ts",
+      "!src/assets/avatars/*.svg",
       "!openapi.json",
       "!node_modules",
       "!test-results",

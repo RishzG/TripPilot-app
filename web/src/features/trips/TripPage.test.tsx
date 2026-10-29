@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import {
   act,
+  cleanup,
   fireEvent,
   render,
   screen,
@@ -19,6 +20,27 @@ vi.mock('../../lib/api', async (importOriginal) => {
   return { ...actual, api: { GET: vi.fn(), POST: vi.fn() } };
 });
 vi.mock('sonner', () => ({ toast: vi.fn() }));
+
+interface SaveButtonProps {
+  setupTokenPath: string;
+  paymentTokenPath: string;
+  onSaved: () => void;
+  onFailed: (reason: 'cancelled' | 'error') => void;
+}
+
+// Stand-in for the PayPal SDK control: the banner hosts it, tests press its outcomes.
+vi.mock('../paypal/SavePayPalButton', () => ({
+  SavePayPalButton: (props: SaveButtonProps) => (
+    <div>
+      <button type="button" onClick={() => props.onSaved()}>
+        sdk-saved
+      </button>
+      <button type="button" onClick={() => props.onFailed('error')}>
+        sdk-failed
+      </button>
+    </div>
+  ),
+}));
 
 const get = api.GET as unknown as Mock;
 const post = api.POST as unknown as Mock;
@@ -44,15 +66,38 @@ function serve(mock: Mock, routes: Record<string, Reply>) {
 
 const INVITE_URL = 'https://trippilot.test/join/abc123';
 
+interface MemberFixture {
+  account_id: string;
+  display_name: string;
+  nickname: string | null;
+  avatar_kind: string;
+  avatar_key: string | null;
+  role: string;
+}
+
 const ORGANISER_TRIP = {
   id: 'trip-1',
   name: 'Tahoe weekend',
   is_organiser: true,
   joining_closed: false,
   members: [
-    { account_id: 'a1', display_name: 'Maya', role: 'organiser' },
-    { account_id: 'a2', display_name: 'Theo', role: 'member' },
-  ],
+    {
+      account_id: 'a1',
+      display_name: 'Maya',
+      nickname: null,
+      avatar_kind: 'initials',
+      avatar_key: null,
+      role: 'organiser',
+    },
+    {
+      account_id: 'a2',
+      display_name: 'Theo',
+      nickname: null,
+      avatar_kind: 'initials',
+      avatar_key: null,
+      role: 'member',
+    },
+  ] as MemberFixture[],
   removed_members: [] as { account_id: string; display_name: string }[],
 };
 
@@ -144,7 +189,14 @@ describe('TripPage basics', () => {
       ...GET_ROUTES,
       '/api/trips/{trip_id}': trip({
         members: [
-          { account_id: 'a1', display_name: 'Maya', role: 'organiser' },
+          {
+            account_id: 'a1',
+            display_name: 'Maya',
+            nickname: null,
+            avatar_kind: 'initials',
+            avatar_key: null,
+            role: 'organiser',
+          },
         ],
       }),
     });
@@ -448,7 +500,14 @@ describe('TripPage membership controls', () => {
 });
 
 describe('TripPage live updates', () => {
-  const SAM = { account_id: 'a3', display_name: 'Sam', role: 'member' };
+  const SAM = {
+    account_id: 'a3',
+    display_name: 'Sam',
+    nickname: null,
+    avatar_kind: 'initials',
+    avatar_key: null,
+    role: 'member',
+  };
 
   beforeEach(() => {
     get.mockReset();
@@ -512,5 +571,178 @@ describe('TripPage live updates', () => {
     expect(
       screen.getByText('Sam joined the trip').closest('[aria-live]'),
     ).not.toBeNull();
+  });
+});
+
+describe('TripPage save-PayPal banner', () => {
+  const BANNER = 'Save PayPal so you can commit in one tap';
+  const DISMISSED_KEY = 'tp-save-banner-dismissed:trip-1';
+  const ME = {
+    id: 'me-1',
+    display_name: 'Jo',
+    nickname: null,
+    avatar_kind: 'initials',
+    avatar_key: null,
+    kind: 'member',
+    is_persona: false,
+  };
+  const BANNER_ROUTES: Record<string, Reply> = {
+    ...GET_ROUTES,
+    '/api/me': { status: 200, data: ME },
+    '/api/paypal/vault/status': { status: 200, data: { saved: false } },
+  };
+
+  beforeEach(() => {
+    get.mockReset();
+    post.mockReset();
+    localStorage.clear();
+    vi.mocked(toast).mockReset();
+  });
+
+  it('shows a quiet banner with the save control to a member who skipped saving', async () => {
+    serve(get, BANNER_ROUTES);
+    renderTrip();
+
+    expect(await screen.findByText(BANNER)).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'sdk-saved' })).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Dismiss' })).toBeTruthy();
+  });
+
+  it('never shows the banner when PayPal is already saved', async () => {
+    serve(get, {
+      ...BANNER_ROUTES,
+      '/api/paypal/vault/status': { status: 200, data: { saved: true } },
+    });
+    renderTrip();
+
+    await screen.findByRole('heading', { level: 1, name: 'Tahoe weekend' });
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith('/api/paypal/vault/status'),
+    );
+    expect(screen.queryByText(BANNER)).toBeNull();
+  });
+
+  it('says nothing when the saved status cannot be read', async () => {
+    serve(get, {
+      ...BANNER_ROUTES,
+      '/api/paypal/vault/status': { status: 500, data: { detail: 'boom' } },
+    });
+    renderTrip();
+
+    await screen.findByRole('heading', { level: 1, name: 'Tahoe weekend' });
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith('/api/paypal/vault/status'),
+    );
+    expect(screen.queryByText(BANNER)).toBeNull();
+  });
+
+  it('does not show a demo persona the banner', async () => {
+    serve(get, {
+      ...BANNER_ROUTES,
+      '/api/me': {
+        status: 200,
+        data: { ...ME, kind: 'persona', is_persona: true },
+      },
+    });
+    renderTrip();
+
+    await screen.findByRole('heading', { level: 1, name: 'Tahoe weekend' });
+    await waitFor(() => expect(get).toHaveBeenCalledWith('/api/me'));
+    expect(screen.queryByText(BANNER)).toBeNull();
+  });
+
+  it('stays hidden after Dismiss, across reloads, for this trip only', async () => {
+    serve(get, BANNER_ROUTES);
+    renderTrip();
+    await screen.findByText(BANNER);
+
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+
+    expect(screen.queryByText(BANNER)).toBeNull();
+    expect(localStorage.getItem(DISMISSED_KEY)).not.toBeNull();
+    expect(localStorage.getItem('tp-save-banner-dismissed:trip-2')).toBeNull();
+    cleanup();
+
+    renderTrip();
+    await screen.findByRole('heading', { level: 1, name: 'Tahoe weekend' });
+    await waitFor(() =>
+      expect(get).toHaveBeenCalledWith('/api/paypal/vault/status'),
+    );
+    expect(screen.queryByText(BANNER)).toBeNull();
+  });
+
+  it('hides the banner once PayPal is saved from it', async () => {
+    serve(get, BANNER_ROUTES);
+    renderTrip();
+    await screen.findByText(BANNER);
+
+    serve(get, {
+      ...BANNER_ROUTES,
+      '/api/paypal/vault/status': { status: 200, data: { saved: true } },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'sdk-saved' }));
+
+    await waitFor(() => expect(screen.queryByText(BANNER)).toBeNull());
+  });
+
+  it('tells the member plainly when saving from the banner fails', async () => {
+    serve(get, BANNER_ROUTES);
+    renderTrip();
+    await screen.findByText(BANNER);
+
+    fireEvent.click(screen.getByRole('button', { name: 'sdk-failed' }));
+
+    expect(
+      await screen.findByText(
+        "Couldn't save that. Nothing was changed, so try again.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText(BANNER)).toBeTruthy();
+  });
+});
+
+describe('TripPage member avatars', () => {
+  beforeEach(() => {
+    get.mockReset();
+    post.mockReset();
+  });
+
+  it('shows each member with their avatar and nickname, never a saved-PayPal marker', async () => {
+    serve(get, {
+      ...GET_ROUTES,
+      '/api/trips/{trip_id}': trip({
+        members: [
+          {
+            account_id: 'a1',
+            display_name: 'Maya Rao',
+            nickname: 'Maya',
+            avatar_kind: 'illustrated',
+            avatar_key: 'maya',
+            role: 'organiser',
+          },
+          {
+            account_id: 'a2',
+            display_name: 'Theo Park',
+            nickname: null,
+            avatar_kind: 'initials',
+            avatar_key: null,
+            role: 'member',
+          },
+        ],
+      }),
+    });
+    renderTrip();
+
+    const list = await screen.findByRole('list', { name: "Who's in" });
+    const rows = within(list).getAllByRole('listitem');
+    expect(rows[0]?.textContent).toContain('Maya');
+    expect(rows[0]?.textContent).not.toContain('Maya Rao');
+    const image = rows[0]?.querySelector('img');
+    expect(image?.getAttribute('alt')).toBe('');
+    expect(image?.getAttribute('src')).toContain('maya');
+    expect(rows[1]?.textContent).toContain('Theo Park');
+    expect(rows[1]?.querySelector('img')).toBeNull();
+    expect(rows[1]?.textContent).toContain('TP');
+    expect(list.textContent?.toLowerCase()).not.toContain('paypal');
   });
 });

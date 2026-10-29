@@ -2,6 +2,7 @@ import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { useState } from 'react';
 import { Link, Navigate, useNavigate, useParams } from 'react-router';
 import { api, unwrap } from '../../lib/api';
+import { LookForm } from '../account/LookForm';
 import { SavePayPalButton } from '../paypal/SavePayPalButton';
 import { useMe } from './useMe';
 
@@ -17,8 +18,9 @@ function Loading() {
 
 /**
  * The step after joining through an invite (D-01, D-02, D-11): the member is already in. They can
- * save PayPal now with one approval, or skip; a failed, closed or blocked popup never keeps them
- * out of the trip. Saving is optional here and never charges or holds anything.
+ * pick a look (nickname prefilled from the PayPal name plus the AvatarPicker, D-45) and save PayPal
+ * now with one approval, or skip either; a failed, closed or blocked popup never keeps them out of
+ * the trip. Saving is optional here and never charges or holds anything.
  */
 export function WelcomePage() {
   const { tripId = '' } = useParams();
@@ -27,6 +29,7 @@ export function WelcomePage() {
   const me = useMe();
   const signedIn = me.isSuccess && me.data !== null;
   const [saveFailed, setSaveFailed] = useState(false);
+  const [lookSaved, setLookSaved] = useState(false);
 
   const trip = useQuery({
     queryKey: ['trip', tripId],
@@ -78,6 +81,15 @@ export function WelcomePage() {
     return <Loading />;
   }
 
+  const account = me.data;
+  if (account === null) {
+    return null;
+  }
+  // Ask for a look once, when the account has none (D-45); it stays on screen after saving so the
+  // member can keep editing, and a demo persona already has a fixed look.
+  const showLook =
+    lookSaved || (account.kind !== 'persona' && account.avatar_key === null);
+
   return (
     <div className="mx-auto w-full max-w-md p-4 pt-6">
       <h1 className="text-balance break-words text-[1.75rem] font-semibold leading-[1.2]">
@@ -87,6 +99,26 @@ export function WelcomePage() {
         You're in. Save PayPal now so committing later takes one tap. Saving
         doesn't charge you or hold any money.
       </p>
+      {showLook && (
+        <section
+          aria-labelledby="welcome-look"
+          className="mt-6 rounded-xl border border-border p-4"
+        >
+          <h2 id="welcome-look" className="text-xl font-semibold leading-[1.2]">
+            Pick your look
+          </h2>
+          <p className="mt-2 text-base">
+            Initials or an illustration. You can change it later.
+          </p>
+          <div className="mt-4">
+            <LookForm
+              me={account}
+              nicknameLabel="Your name in the group"
+              onSaved={() => setLookSaved(true)}
+            />
+          </div>
+        </section>
+      )}
       <section className="mt-6 rounded-xl border border-l-4 border-border border-l-money p-4">
         <p className="text-base font-semibold">Save PayPal for this trip</p>
         <div className="mt-4">
