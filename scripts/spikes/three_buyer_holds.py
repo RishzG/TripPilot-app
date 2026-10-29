@@ -32,12 +32,12 @@ import argparse
 import asyncio
 import re
 import sys
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import timedelta
 from typing import Final
+from urllib.parse import quote, urlsplit
 from uuid import UUID
-from urllib.parse import urlsplit
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -433,11 +433,87 @@ async def report(run_id: str) -> int:
     return 0 if verdict == 'OK' else 1
 
 
+def describe_payment_token(body: Mapping[str, object], expected_email: str | None) -> str:
+    """Summarise a `GET /v3/vault/payment-tokens/{id}` body without printing any id.
+
+    Says whether PayPal attached a customer and whether the saved payer is the pool buyer's
+    sandbox account (case-insensitive email match).
+    """
+    customer = body.get('customer')
+    has_customer = isinstance(customer, Mapping) and bool(customer.get('id'))
+    source = body.get('payment_source')
+    paypal = source.get('paypal') if isinstance(source, Mapping) else None
+    email = paypal.get('email_address') if isinstance(paypal, Mapping) else None
+    matches = (
+        isinstance(email, str)
+        and expected_email is not None
+        and email.lower() == expected_email.lower()
+    )
+    return (
+        f'readable, customer {"present" if has_customer else "missing"}, '
+        f'payer email {"matches" if matches else "differs"}'
+    )
+
+
+async def diagnose(*, settings: Settings | None = None) -> int:
+    """Read-only PayPal checks: can this app read each enrolled buyer's saved token?
+
+    Prints the app's client id prefix, its token scopes and, per enrolled buyer, whether
+    `GET /v3/vault/payment-tokens/{id}` succeeds. Places no hold; each token decryption is
+    ledgered as `vault.token_used` like any other use.
+    """
+    cfg = settings or get_settings()
+    problem = refusal(cfg)
+    if problem is not None:
+        print(f'refusing to diagnose: {problem}', file=sys.stderr)
+        return 2
+    from trippilot.payments import get_paypal_gateway
+    from trippilot.payments.client import PayPalClient
+
+    gateway = get_paypal_gateway()
+    if not isinstance(gateway, PayPalClient):
+        print('refusing to diagnose: the gateway is not the PayPal client', file=sys.stderr)
+        return 2
+    store = VaultStore(parse_vault_keys(cfg.vault_keys.get_secret_value()))
+    print(f'app client id starts {cfg.paypal_client_id[:8]}')
+    scopes = await gateway.access_token_scopes()
+    for scope in sorted(scopes):
+        if 'vault' in scope or 'payment' in scope or 'checkout' in scope:
+            print(f'  scope {scope}')
+    get_engine()
+    async with make_session() as db:
+        for buyer in await list_pool(db, cfg.app_env):
+            if buyer.status != 'enrolled' or buyer.vault_token_id is None:
+                print(f'{buyer.slug}: {buyer.status}, no token')
+                continue
+            token = await store.use_token(
+                db,
+                buyer.vault_token_id,
+                actor_kind=ACTOR_KIND,
+                actor_id=ACTOR_ID,
+                purpose='spike diagnose',
+                request_id=f'spike3-diag-{buyer.slug}',
+            )
+            await db.commit()
+            try:
+                body = await gateway._request('GET', f'/v3/vault/payment-tokens/{quote(token)}')
+            except PayPalError as error:
+                print(f'{buyer.slug}: not readable: {error.summary()}')
+                continue
+            print(f'{buyer.slug}: {describe_payment_token(body, buyer.sandbox_email)}')
+    return 0
+
+
 def main(argv: Sequence[str] | None = None) -> int:
-    """Parse the command line and run or report."""
+    """Parse the command line and run, report or diagnose."""
     parser = argparse.ArgumentParser(description=__doc__.split('\n\n')[0] if __doc__ else None)
     parser.add_argument('--run-id', required=True, help='letters, digits and dashes, e.g. oct29')
     parser.add_argument('--report', action='store_true', help='read-only: print the run and exit')
+    parser.add_argument(
+        '--diagnose',
+        action='store_true',
+        help='read-only: check this app can read each enrolled buyer token',
+    )
     args = parser.parse_args(argv)
     run_id = str(args.run_id)
     if not RUN_ID_PATTERN.fullmatch(run_id):
@@ -447,6 +523,8 @@ def main(argv: Sequence[str] | None = None) -> int:
 
     async def go() -> int:
         try:
+            if args.diagnose:
+                return await diagnose()
             return await (report(run_id) if args.report else run_spike(run_id))
         finally:
             await dispose_engine()

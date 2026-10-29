@@ -49,7 +49,9 @@ log `resource`. A job's command is never echoed (it may carry a secret) and a jo
 from __future__ import annotations
 
 import argparse
+import io
 import os
+import re
 import subprocess
 import sys
 import time
@@ -134,6 +136,14 @@ class Config:
     web_id: str
     worker_id: str
     db_id: str
+
+
+ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
+
+
+def clean_log_message(message: str) -> str:
+    """Strip the terminal colour codes Render puts in its deploy banners."""
+    return ANSI_ESCAPE.sub('', message)
 
 
 def load_env_file(path: Path) -> dict[str, str]:
@@ -438,7 +448,7 @@ class StagingPower:
             text=text,
         )
         for timestamp, message in lines:
-            print(f'{timestamp} {message}')
+            print(f'{timestamp} {clean_log_message(message)}')
         return 0
 
     def run_job(self, command: str, timeout: int = DEFAULT_JOB_TIMEOUT) -> int:
@@ -497,7 +507,7 @@ class StagingPower:
                     break
                 self._sleep(POLL_SECONDS)
             for timestamp, message in lines:
-                print(f'{timestamp} {message}')
+                print(f'{timestamp} {clean_log_message(message)}')
         except StagingError as error:
             print(f'warning: could not read the job logs: {error}', file=sys.stderr)
         return 0 if status == 'succeeded' else 1
@@ -578,6 +588,10 @@ def main(
     utcnow: Callable[[], datetime] | None = None,
 ) -> int:
     """Run one subcommand; return 0 on success, 1 on a failed step and 2 on missing settings."""
+    for stream in (sys.stdout, sys.stderr):
+        if isinstance(stream, io.TextIOWrapper):
+            # Render log lines carry emoji a Windows console code page cannot encode.
+            stream.reconfigure(errors='replace')
     args = build_parser().parse_args(list(argv))
     if env is None:
         env_file = Path(os.environ.get('STAGING_ENV_FILE') or ENV_FILE_DEFAULT)
