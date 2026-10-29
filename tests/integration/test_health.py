@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -16,6 +17,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from trippilot.app import create_app
 from trippilot.db.engine import get_db
+from trippilot.payments import get_paypal_gateway
+from trippilot.payments.fake import FakePayPal
 from trippilot.settings import get_settings
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -28,16 +31,30 @@ def _single_migration_head() -> str:
     return heads[0]
 
 
-async def test_health_reaches_postgres(client: httpx.AsyncClient) -> None:
+def _assert_started_at(body: dict[str, object]) -> None:
+    """Check started_at is a UTC ISO-8601 timestamp and drop it so the rest can be compared."""
+    started = body.pop('started_at')
+    assert isinstance(started, str)
+    assert datetime.fromisoformat(started).utcoffset() == timedelta(0)
+
+
+async def test_health_reaches_postgres() -> None:
     """GET /api/health answers 200 with db 'ok' after a real SELECT 1."""
-    response = await client.get('/api/health')
+    app: FastAPI = create_app()
+    app.dependency_overrides[get_paypal_gateway] = lambda: FakePayPal()
+    transport = httpx.ASGITransport(app=app)
+    async with httpx.AsyncClient(transport=transport, base_url='http://test') as http_client:
+        response = await http_client.get('/api/health')
 
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    _assert_started_at(body)
+    assert body == {
         'status': 'ok',
         'git_sha': get_settings().app_git_sha,
         'db': 'ok',
         'worker_last_seen_seconds': None,
+        'paypal_vault_scope': True,
     }
 
 
@@ -55,16 +72,20 @@ async def test_health_reports_db_error_without_leaking_details() -> None:
         return _BrokenSession()
 
     app.dependency_overrides[get_db] = broken_db
+    app.dependency_overrides[get_paypal_gateway] = lambda: FakePayPal()
     transport = httpx.ASGITransport(app=app)
     async with httpx.AsyncClient(transport=transport, base_url='http://test') as http_client:
         response = await http_client.get('/api/health')
 
     assert response.status_code == 200
-    assert response.json() == {
+    body = response.json()
+    _assert_started_at(body)
+    assert body == {
         'status': 'ok',
         'git_sha': get_settings().app_git_sha,
         'db': 'error',
         'worker_last_seen_seconds': None,
+        'paypal_vault_scope': True,
     }
     assert 'hunter2' not in response.text
     assert 'secret-db' not in response.text
