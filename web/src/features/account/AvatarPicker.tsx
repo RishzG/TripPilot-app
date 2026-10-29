@@ -51,7 +51,7 @@ export function AvatarPicker({ name, value, onChange }: AvatarPickerProps) {
               aria-label={index === 0 ? 'Initials' : `Avatar ${index}`}
               className="peer sr-only"
             />
-            <span className="flex size-16 items-center justify-center overflow-hidden rounded-full bg-muted text-xl font-semibold ring-offset-2 ring-offset-background peer-checked:ring-2 peer-checked:ring-accent peer-focus-visible:ring-2 peer-focus-visible:ring-accent">
+            <span className="flex size-16 items-center justify-center overflow-hidden rounded-full bg-muted text-xl font-semibold ring-offset-2 ring-offset-background peer-checked:ring-2 peer-checked:ring-primary peer-focus-visible:ring-2 peer-focus-visible:ring-primary">
               {url === undefined ? (
                 <span aria-hidden="true">{initialsOf(name)}</span>
               ) : (
@@ -61,7 +61,7 @@ export function AvatarPicker({ name, value, onChange }: AvatarPickerProps) {
             {selected && (
               <span
                 aria-hidden="true"
-                className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-accent text-accent-foreground"
+                className="absolute -right-1 -top-1 flex size-4 items-center justify-center rounded-full bg-primary hover:bg-primary-hover text-primary-foreground"
               >
                 <Check size={12} />
               </span>

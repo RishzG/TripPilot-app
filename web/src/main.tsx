@@ -3,6 +3,7 @@ import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { RouterProvider } from 'react-router';
 import { router } from './app/router';
+import '@fontsource-variable/plus-jakarta-sans/wght.css';
 import './index.css';
 
 const queryClient = new QueryClient();

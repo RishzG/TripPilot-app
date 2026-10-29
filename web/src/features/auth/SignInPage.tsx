@@ -5,7 +5,7 @@ import { JUDGE_LOGINS } from './judgeLogins';
 import { safeNextPath } from './useMe';
 
 const BUTTON_CLASS =
-  'inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-accent px-4 text-base font-semibold text-accent-foreground';
+  'inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground';
 const OUTLINE_CLASS =
   'inline-flex min-h-11 w-full items-center justify-center rounded-lg border border-border px-4 text-base font-semibold';
 

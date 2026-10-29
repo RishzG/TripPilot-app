@@ -123,7 +123,7 @@ export function LookForm({
         type="submit"
         disabled={save.isPending}
         aria-busy={save.isPending}
-        className="min-h-11 w-full rounded-lg bg-accent px-4 text-base font-semibold text-accent-foreground disabled:opacity-50"
+        className="min-h-11 w-full rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground disabled:opacity-50"
       >
         Save my look
       </button>

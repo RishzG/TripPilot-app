@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" width="32" height="32" role="img" aria-label="TripPilot">
+  <!--
+    TripPilot logo tile (D-48 option A, "Compass tile"). An SVG file cannot read page CSS
+    variables, so the two colours below mirror the tokens in src/index.css:
+      tile fill  #c2410c = --primary
+      icon stroke #ffffff = --primary-foreground
+    The compass is the lucide "Compass" icon (ISC licence, https://lucide.dev).
+  -->
+  <rect width="32" height="32" rx="8" fill="#c2410c"/>
+  <g transform="translate(4 4)" fill="none" stroke="#ffffff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="12" cy="12" r="10"/>
+    <path d="m16.24 7.76-1.804 5.411a2 2 0 0 1-1.265 1.265L7.76 16.24l1.804-5.411a2 2 0 0 1 1.265-1.265z"/>
+  </g>
+</svg>

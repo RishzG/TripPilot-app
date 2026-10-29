@@ -16,7 +16,7 @@ function NotFound() {
       <p className="mt-2 text-muted-foreground">The link may be old.</p>
       <Link
         to="/"
-        className="mt-4 inline-flex min-h-11 items-center rounded-lg bg-accent px-4 text-base font-semibold text-accent-foreground"
+        className="mt-4 inline-flex min-h-11 items-center rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground"
       >
         Go to My trips
       </Link>
@@ -73,7 +73,7 @@ export function PersonaPickerPage() {
         <button
           type="button"
           onClick={() => personas.refetch()}
-          className="mt-4 min-h-11 rounded-lg bg-accent px-4 text-base font-semibold text-accent-foreground"
+          className="mt-4 min-h-11 rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground"
         >
           Retry loading
         </button>
@@ -113,7 +113,7 @@ export function PersonaPickerPage() {
               disabled={signIn.isPending}
               aria-busy={signIn.isPending && signIn.variables === persona.slug}
               onClick={() => signIn.mutate(persona.slug)}
-              className="min-h-11 w-full rounded-lg bg-accent px-4 text-base font-semibold text-accent-foreground disabled:opacity-50"
+              className="min-h-11 w-full rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground disabled:opacity-50"
             >
               Continue as {persona.name}
             </button>

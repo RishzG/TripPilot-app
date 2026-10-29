@@ -1,38 +1,203 @@
 @import 'tailwindcss';
+@import 'tw-animate-css';
 
 /*
- * Theme tokens (D-40, D-43). Every colour in the SPA is defined here, once, as a CSS variable.
- * Light theme only. Components use the Tailwind utilities mapped below (bg-accent, text-money, ...)
- * and never a colour literal, so the whole palette can be swapped in this one block.
+ * Theme tokens (D-40, D-43), from 01-UI-SPEC.md "Color". Every colour in the SPA is defined here,
+ * once, as a CSS variable. Light theme only: there is no dark block and no dark variant.
+ * Components use the Tailwind utilities mapped in @theme inline (bg-primary, text-money, ...) and
+ * never a colour literal, so the whole palette can be swapped in this one block.
+ * web/src/theme.contrast.test.ts reads this :root block and checks the WCAG AA pairs; if a pair
+ * fails, change the token here, never the test.
+ *
+ * Token meanings follow shadcn: `accent` is the hover surface for menu items and ghost buttons,
+ * NOT the brand colour. The coral brand colour is `primary`.
  */
 :root {
-  --accent: #c2410c;
-  --accent-foreground: #ffffff;
   --background: #fffaf5;
   --foreground: #1c1917;
+  --card: #ffffff;
+  --card-foreground: #1c1917;
+  --popover: #ffffff;
+  --popover-foreground: #1c1917;
+  --primary: #c2410c;
+  --primary-foreground: #ffffff;
+  --primary-hover: #9a3412;
+  --secondary: #f5ede4;
+  --secondary-foreground: #1c1917;
   --muted: #f5ede4;
   --muted-foreground: #57534e;
+  --accent: #efe3d6;
+  --accent-foreground: #1c1917;
   --border: #e7d9ca;
+  /* form control border; 4.63:1 on background (>= 3:1 non-text) */
+  --input: #78716c;
+  --ring: #c2410c;
+  --destructive: #b91c1c;
+  --destructive-foreground: #ffffff;
+  /* money moments only: save-PayPal banner, PayPal saved badge, amount columns */
   --money: #1d4ed8;
+  --money-foreground: #ffffff;
+  --money-surface: #eff6ff;
   --sandbox-banner: #fef3c7;
   --sandbox-banner-foreground: #78350f;
+  /* initials text on all eight avatar colours */
+  --avatar-foreground: #ffffff;
+  --avatar-1: #9f1239;
+  --avatar-2: #a16207;
+  --avatar-3: #4d7c0f;
+  --avatar-4: #047857;
+  --avatar-5: #0f766e;
+  --avatar-6: #6d28d9;
+  --avatar-7: #be185d;
+  --avatar-8: #57534e;
+  /* cards; buttons, inputs and badges use 8px (radius-lg) */
+  --radius: 12px;
+}
+
+/*
+ * Data-attribute variants the shadcn/ui components use (data-open:, data-closed:, data-checked:).
+ * They mirror the custom variants of shadcn/tailwind.css (MIT). That file ships in the `shadcn`
+ * npm package, which this repo does not install (only the pinned CLI is run through npx), so the
+ * variants the copied-in components need are declared here.
+ */
+@custom-variant data-open {
+  &:where([data-state='open']),
+  &:where([data-open]:not([data-open='false'])) {
+    @slot;
+  }
+}
+
+@custom-variant data-closed {
+  &:where([data-state='closed']),
+  &:where([data-closed]:not([data-closed='false'])) {
+    @slot;
+  }
+}
+
+@custom-variant data-checked {
+  &:where([data-state='checked']),
+  &:where([data-checked]:not([data-checked='false'])) {
+    @slot;
+  }
+}
+
+@custom-variant data-disabled {
+  &:where([data-disabled='true']),
+  &:where([data-disabled]:not([data-disabled='false'])) {
+    @slot;
+  }
+}
+
+@custom-variant data-horizontal {
+  &:where([data-orientation='horizontal']) {
+    @slot;
+  }
+}
+
+@custom-variant data-vertical {
+  &:where([data-orientation='vertical']) {
+    @slot;
+  }
 }
 
 @theme inline {
-  --color-accent: var(--accent);
-  --color-accent-foreground: var(--accent-foreground);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
   --color-muted: var(--muted);
   --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
   --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
   --color-money: var(--money);
+  --color-money-foreground: var(--money-foreground);
+  --color-money-surface: var(--money-surface);
   --color-sandbox-banner: var(--sandbox-banner);
   --color-sandbox-banner-foreground: var(--sandbox-banner-foreground);
+  --color-avatar-foreground: var(--avatar-foreground);
+  --color-avatar-1: var(--avatar-1);
+  --color-avatar-2: var(--avatar-2);
+  --color-avatar-3: var(--avatar-3);
+  --color-avatar-4: var(--avatar-4);
+  --color-avatar-5: var(--avatar-5);
+  --color-avatar-6: var(--avatar-6);
+  --color-avatar-7: var(--avatar-7);
+  --color-avatar-8: var(--avatar-8);
+
+  /* Plus Jakarta Sans Variable, self-hosted through @fontsource-variable (imported in main.tsx) */
+  --font-sans:
+    'Plus Jakarta Sans Variable', ui-sans-serif, system-ui, -apple-system,
+    'Segoe UI', sans-serif;
+  --font-heading: var(--font-sans);
+
+  /* Exactly four type sizes: 14 (text-sm), 16 (text-base), 20 (text-xl), 28 (text-display) */
+  --text-display: 1.75rem;
+  --text-display--line-height: 1.2;
+
+  --radius-lg: calc(var(--radius) - 4px);
+  --radius-xl: var(--radius);
+
+  /* Skeleton shimmer (D-47): 1.5s linear sweep from muted to accent and back */
+  --animate-shimmer: shimmer 1.5s linear infinite;
+  @keyframes shimmer {
+    from {
+      background-position: 100% 0;
+    }
+    to {
+      background-position: -100% 0;
+    }
+  }
 }
 
-body {
-  margin: 0;
-  background-color: var(--background);
-  color: var(--foreground);
+@layer base {
+  html {
+    font-family: var(--font-sans);
+    font-size: 100%;
+    line-height: 1.5;
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    margin: 0;
+    background-color: var(--background);
+    color: var(--foreground);
+  }
+
+  * {
+    border-color: var(--border);
+  }
+
+  /* Visible focus ring on every focusable element (UI-SPEC accessibility); components with their
+     own ring classes override this through the utilities layer. */
+  :focus-visible {
+    outline: 2px solid var(--ring);
+    outline-offset: 2px;
+  }
 }
+
+/* Reduced motion (D-46): every animation and transition becomes instant. The UI-SPEC rule needs
+   !important to beat utility classes and inline animation durations. */
+/* biome-ignore-start lint/complexity/noImportantStyles: mandated by the UI-SPEC reduced-motion rule */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
+/* biome-ignore-end lint/complexity/noImportantStyles: end of the reduced-motion rule */
