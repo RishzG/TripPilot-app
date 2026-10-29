@@ -467,3 +467,27 @@ def test_the_script_reads_settings_from_the_environment_not_an_env_file() -> Non
     assert 'get_settings()' in source
     assert '_env_file' not in source
     assert 'load_env_file' not in source
+
+
+def test_describe_payment_token_reports_ownership_facts_without_ids(script: Any) -> None:
+    """The diagnose summary says whether PayPal returned a customer and the expected payer."""
+    body = {
+        'id': 'TOKEN-SECRET-ID',
+        'customer': {'id': 'CUSTOMER-SECRET-ID'},
+        'payment_source': {'paypal': {'email_address': 'Buyer@Example.com', 'payer_id': 'P1'}},
+    }
+
+    summary = script.describe_payment_token(body, 'buyer@example.com')
+
+    assert summary == 'readable, customer present, payer email matches'
+    assert 'TOKEN-SECRET-ID' not in summary
+    assert 'CUSTOMER-SECRET-ID' not in summary
+    mismatch = script.describe_payment_token({'payment_source': {'paypal': {}}}, 'b@example.com')
+    assert mismatch == 'readable, customer missing, payer email differs'
+
+
+async def test_diagnose_refuses_outside_the_sandbox(script: Any) -> None:
+    """Diagnose makes no call unless it runs against the PayPal sandbox."""
+    settings = get_settings().model_copy(update={'paypal_mode': 'fake'})
+
+    assert await script.diagnose(settings=settings) == 2

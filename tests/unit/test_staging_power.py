@@ -903,3 +903,10 @@ def test_run_job_does_not_echo_the_command_it_was_given(
 
     captured = capsys.readouterr()
     assert 'hunter2' not in captured.out + captured.err
+
+
+def test_log_messages_lose_terminal_colour_codes(sp: Any) -> None:
+    """Render's coloured deploy banners print as plain text."""
+    raw = '\x1b[0;32m\x1b[1m==> \x1b[0m\x1b[1mYour service is live\x1b[0m'
+
+    assert sp.clean_log_message(raw) == '==> Your service is live'
