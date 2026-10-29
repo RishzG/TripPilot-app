@@ -83,7 +83,7 @@ describe('JoinPage signed out', () => {
     post.mockReset();
   });
 
-  it('invites the visitor by organiser first name and trip, with a sign-in link back here', async () => {
+  it('invites the visitor by organiser first name and trip, with Log in with PayPal for this invite', async () => {
     serve({
       '/api/me': SIGNED_OUT,
       '/api/invites/{token}': {
@@ -105,7 +105,7 @@ describe('JoinPage signed out', () => {
     expect(screen.getByText("Sign in to join and see who's in.")).toBeTruthy();
     const signIn = screen.getByRole('link', { name: 'Sign in to join' });
     expect(signIn.getAttribute('href')).toBe(
-      `/signin?next=${encodeURIComponent('/join/tok-123')}`,
+      '/api/auth/paypal/start?invite=tok-123',
     );
   });
 

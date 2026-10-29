@@ -10,6 +10,8 @@ only while someone needs it. This script drives it through the Render API:
     suspend        close the deploy gate first, then suspend worker, web and Postgres
     restart-proof  create a smoke trip, restart web and worker, wait for a new process start
                    time and a fresh worker heartbeat, then read the trip back
+    env-keys       print only the NAMES of the environment variables set on web and worker
+    set-env KEY V  set one environment variable on both web and worker (value never printed)
 
 Configuration: RENDER_API_KEY, STAGING_BASE_URL, STAGING_WEB_SERVICE_ID, STAGING_WORKER_SERVICE_ID
 and STAGING_DB_ID, read from the git-ignored .env.staging at the repo root (another path with
@@ -20,7 +22,12 @@ default `gh` repository is the wrong upstream. The Render API key goes only into
 `Authorization` header: it is never printed, logged, passed to a subprocess or sent to staging.
 
 Render endpoints used (api-docs.render.com): `GET /v1/services/{id}`, `GET /v1/postgres/{id}`,
-`POST /v1/services/{id}/suspend|resume|restart` and `POST /v1/postgres/{id}/suspend|resume`.
+`POST /v1/services/{id}/suspend|resume|restart`, `POST /v1/postgres/{id}/suspend|resume`,
+`GET /v1/services/{id}/env-vars` (a JSON array of `{"envVar": {"key", "value"}, "cursor"}`,
+paged with `?limit=` up to 100 and `?cursor=` of the last item) and
+`PUT /v1/services/{id}/env-vars/{KEY}` with body `{"value": "..."}` (answers 200 `{"key","value"}`).
+The env commands exist because the secret-read guard stops an interactive shell from sourcing
+the env file: they print key names only and never a value.
 """
 
 from __future__ import annotations
@@ -44,6 +51,9 @@ FRESH_WORKER_SECONDS = 60.0
 DEFAULT_RESUME_TIMEOUT = 600
 DEFAULT_RESTART_TIMEOUT = 180
 HTTP_TIMEOUT_SECONDS = 30.0
+ENV_PAGE_LIMIT = 100
+ENV_MAX_PAGES = 50
+PROTECTED_ENV_KEYS = frozenset({'RENDER_API_KEY'})
 SUBPROCESS_TIMEOUT_SECONDS = 180.0
 SMOKE_SCRIPT = Path(__file__).resolve().parents[1] / 'smoke' / 'hosted_persistence.py'
 ENV_FILE_DEFAULT = Path(__file__).resolve().parents[2] / '.env.staging'
@@ -150,12 +160,24 @@ class StagingPower:
 
     # -- plumbing ----------------------------------------------------------------------------
 
-    def _render(self, method: str, path: str) -> httpx.Response:
-        """Call the Render API; any non-2xx or transport failure raises `StagingError`."""
+    def _render(
+        self,
+        method: str,
+        path: str,
+        *,
+        params: Mapping[str, str] | None = None,
+        body: Mapping[str, str] | None = None,
+    ) -> httpx.Response:
+        """Call the Render API; any non-2xx or transport failure raises `StagingError`.
+
+        Errors name the method, path and status only: never the request body, which may be a secret.
+        """
         try:
             response = self._client.request(
                 method,
                 f'{RENDER_API}{path}',
+                params=params,
+                json=body,
                 headers={
                     'Authorization': f'Bearer {self._config.api_key}',
                     'Accept': 'application/json',
@@ -239,6 +261,51 @@ class StagingPower:
         print('staging suspended; STAGING_ACTIVE=false')
         return 0
 
+    def _service_env_keys(self, service_id: str) -> list[str]:
+        """Return the sorted variable names of one service, following Render's cursor paging.
+
+        Accepts the documented `{"envVar": {"key", "value"}, "cursor"}` items and flat
+        `{"key", "value"}` items. Only keys are read out of each item; values are dropped here.
+        """
+        keys: list[str] = []
+        cursor: str | None = None
+        for _ in range(ENV_MAX_PAGES):
+            params = {'limit': str(ENV_PAGE_LIMIT)}
+            if cursor is not None:
+                params['cursor'] = cursor
+            page = self._render('GET', f'/services/{service_id}/env-vars', params=params).json()
+            if not isinstance(page, list) or not page:
+                break
+            last_cursor: str | None = None
+            for item in page:
+                if not isinstance(item, dict):
+                    continue
+                entry = item.get('envVar', item)
+                key = entry.get('key') if isinstance(entry, dict) else None
+                if isinstance(key, str):
+                    keys.append(key)
+                if isinstance(item.get('cursor'), str):
+                    last_cursor = item['cursor']
+            if len(page) < ENV_PAGE_LIMIT or last_cursor is None:
+                break
+            cursor = last_cursor
+        return sorted(set(keys))
+
+    def env_keys(self) -> int:
+        """Print the variable names set on web and worker, one line per service; no values."""
+        for label, service_id in (('web', self._config.web_id), ('worker', self._config.worker_id)):
+            print(f'{label}: {", ".join(self._service_env_keys(service_id))}')
+        return 0
+
+    def set_env(self, key: str, value: str) -> int:
+        """Set one variable on web and worker; the value is sent to Render and never printed."""
+        if key in PROTECTED_ENV_KEYS:
+            raise StagingError(f'{key} is never copied to the staging services')
+        for service_id in (self._config.web_id, self._config.worker_id):
+            self._render('PUT', f'/services/{service_id}/env-vars/{key}', body={'value': value})
+        print(f'set {key} on web and worker')
+        return 0
+
     def _smoke(self, *extra: str) -> subprocess.CompletedProcess[str]:
         """Run the persistence smoke script against staging, relaying its diagnostics."""
         argv = [sys.executable, str(SMOKE_SCRIPT), self._config.base_url, *extra]
@@ -290,6 +357,10 @@ def build_parser() -> argparse.ArgumentParser:
     commands.add_parser('suspend', help='suspend staging and close the deploy gate')
     proof = commands.add_parser('restart-proof', help='prove a trip survives a restart')
     proof.add_argument('--timeout', type=int, default=DEFAULT_RESTART_TIMEOUT, help='seconds')
+    commands.add_parser('env-keys', help='print the names (never values) of the service env vars')
+    set_env = commands.add_parser('set-env', help='set one env var on both web and worker')
+    set_env.add_argument('key', help='variable name, e.g. PAYPAL_LOGIN_REDIRECT_URI')
+    set_env.add_argument('value', help='variable value (sent to Render, never printed)')
     return parser
 
 
@@ -330,6 +401,10 @@ def main(
                 return power.resume(args.timeout)
             if args.command == 'suspend':
                 return power.suspend()
+            if args.command == 'env-keys':
+                return power.env_keys()
+            if args.command == 'set-env':
+                return power.set_env(args.key, args.value)
             return power.restart_proof(args.timeout)
         except StagingError as error:
             print(f'error: {error}', file=sys.stderr)

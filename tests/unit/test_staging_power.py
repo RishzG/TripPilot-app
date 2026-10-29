@@ -8,6 +8,7 @@ GitHub or a real process. Time is a fake clock, so the bounded polls finish inst
 from __future__ import annotations
 
 import importlib.util
+import json
 import subprocess
 import sys
 from collections.abc import Iterator, Mapping, Sequence
@@ -96,6 +97,10 @@ class World:
         self.render_status = 202
         self.create_rc = 0
         self.check_rc = 0
+        self.env_vars: dict[str, list[dict[str, Any]]] = {}
+        self.env_put_status = 200
+        self.env_puts: list[tuple[str, str, object]] = []
+        self.env_get_queries: list[dict[str, str]] = []
 
     def monotonic(self) -> float:
         """Fake monotonic clock."""
@@ -116,9 +121,36 @@ class World:
             return subprocess.CompletedProcess(list(argv), code, stdout=out, stderr='')
         return subprocess.CompletedProcess(list(argv), 0, stdout='', stderr='')
 
+    def _env_vars_response(self, request: httpx.Request) -> httpx.Response | None:
+        """Answer the service env-var endpoints (list with cursor paging, and PUT one key)."""
+        parts = request.url.path.strip('/').split('/')
+        if len(parts) >= 4 and parts[1] == 'services' and parts[3] == 'env-vars':
+            service_id = parts[2]
+            if request.method == 'GET' and len(parts) == 4:
+                query = dict(request.url.params)
+                self.env_get_queries.append(query)
+                items = self.env_vars.get(service_id, [])
+                start = 0
+                cursor = query.get('cursor')
+                if cursor is not None:
+                    cursors = [item.get('cursor') for item in items]
+                    start = cursors.index(cursor) + 1
+                limit = int(query.get('limit', '20'))
+                return httpx.Response(200, json=items[start : start + limit])
+            if request.method == 'PUT' and len(parts) == 5:
+                body = json.loads(request.content)
+                self.env_puts.append((service_id, parts[4], body))
+                return httpx.Response(
+                    self.env_put_status, json={'key': parts[4], 'value': body.get('value')}
+                )
+        return None
+
     def _render_response(self, request: httpx.Request) -> httpx.Response:
-        self.events.append(('http', request.method, str(request.url)))
         self.render_auth.append(request.headers.get('authorization'))
+        env_response = self._env_vars_response(request)
+        if env_response is not None:
+            return env_response
+        self.events.append(('http', request.method, str(request.url)))
         if request.method == 'GET':
             state = self.status_bodies.get(str(request.url), 'not_suspended')
             return httpx.Response(200, json={'id': 'x', 'suspended': state})
@@ -434,3 +466,105 @@ def test_main_reads_the_env_file_and_the_process_environment_wins(
     assert code == 0
     assert ('http', 'GET', f'{RENDER}/postgres/dpg-db') in w.events
     assert w.render_auth[0] == f'Bearer {API_KEY}'
+
+
+def _nested(key: str, value: str, cursor: str) -> dict[str, Any]:
+    """One list item in the documented Render shape: {"envVar": {...}, "cursor": ...}."""
+    return {'envVar': {'key': key, 'value': value}, 'cursor': cursor}
+
+
+def test_env_keys_prints_only_the_sorted_key_names_of_each_service(
+    sp: Any, world: World_, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Both Render list shapes are understood; keys are sorted and no value is ever printed."""
+    w, _router = world
+    w.env_vars['srv-web'] = [
+        _nested('ZED', 'secret-zed-value', 'c1'),
+        _nested('ALPHA', 'v-a', 'c2'),
+    ]
+    w.env_vars['srv-worker'] = [
+        {'key': 'MIDDLE', 'value': 'secret-mid-value'},
+        {'key': 'BETA', 'value': 'b'},
+    ]
+
+    assert run_main(sp, w, ['env-keys']) == 0
+
+    out = capsys.readouterr()
+    assert out.out.splitlines() == ['web: ALPHA, ZED', 'worker: BETA, MIDDLE']
+    assert 'secret-zed-value' not in out.out + out.err
+    assert 'secret-mid-value' not in out.out + out.err
+    assert API_KEY not in out.out + out.err
+    assert set(w.render_auth) == {f'Bearer {API_KEY}'}
+
+
+def test_env_keys_follows_the_cursor_until_the_last_page(
+    sp: Any, world: World_, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """More than one page of variables are all listed, paging with the last item's cursor."""
+    w, _router = world
+    w.env_vars['srv-web'] = [_nested(f'KEY_{n:03d}', 'v', f'c{n}') for n in range(130)]
+    w.env_vars['srv-worker'] = [_nested('ONLY', 'v', 'c0')]
+
+    assert run_main(sp, w, ['env-keys']) == 0
+
+    lines = capsys.readouterr().out.splitlines()
+    web_keys = lines[0].removeprefix('web: ').split(', ')
+    assert len(web_keys) == 130
+    assert web_keys[0] == 'KEY_000'
+    assert web_keys[-1] == 'KEY_129'
+    web_queries = w.env_get_queries[:2]
+    assert web_queries[0].get('cursor') is None
+    assert web_queries[1]['cursor'] == 'c99'
+    assert all(q['limit'] == '100' for q in w.env_get_queries)
+
+
+def test_set_env_puts_the_value_on_web_and_worker_and_never_prints_it(
+    sp: Any, world: World_, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """PUT /services/{id}/env-vars/{KEY} with {"value": VALUE} on both, then one quiet line."""
+    w, _router = world
+
+    code = run_main(
+        sp, w, ['set-env', 'PAYPAL_LOGIN_REDIRECT_URI', 'https://x.example/cb?s=topsecret']
+    )
+
+    assert code == 0
+    assert w.env_puts == [
+        ('srv-web', 'PAYPAL_LOGIN_REDIRECT_URI', {'value': 'https://x.example/cb?s=topsecret'}),
+        ('srv-worker', 'PAYPAL_LOGIN_REDIRECT_URI', {'value': 'https://x.example/cb?s=topsecret'}),
+    ]
+    captured = capsys.readouterr()
+    assert captured.out.strip() == 'set PAYPAL_LOGIN_REDIRECT_URI on web and worker'
+    assert 'topsecret' not in captured.out + captured.err
+    assert set(w.render_auth) == {f'Bearer {API_KEY}'}
+
+
+def test_set_env_names_the_status_but_never_the_value_when_render_refuses(
+    sp: Any, world: World_, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A non-2xx PUT ends non-zero; stderr carries the status and not the value."""
+    w, _router = world
+    w.env_put_status = 422
+
+    code = run_main(sp, w, ['set-env', 'SOME_KEY', 'topsecret-value'])
+
+    assert code == 1
+    captured = capsys.readouterr()
+    assert '422' in captured.err
+    assert 'topsecret-value' not in captured.out + captured.err
+    assert len(w.env_puts) == 1
+
+
+def test_set_env_refuses_the_render_api_key_name(
+    sp: Any, world: World_, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """RENDER_API_KEY must never be pushed to the services; nothing is sent."""
+    w, _router = world
+
+    code = run_main(sp, w, ['set-env', 'RENDER_API_KEY', 'topsecret-value'])
+
+    assert code != 0
+    assert w.env_puts == []
+    captured = capsys.readouterr()
+    assert 'RENDER_API_KEY' in captured.err
+    assert 'topsecret-value' not in captured.out + captured.err
