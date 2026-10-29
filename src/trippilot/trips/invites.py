@@ -47,6 +47,7 @@ __all__ = [
     'invite_url',
     'join_via_invite',
     'preview_invite',
+    'raw_invite_token',
     'reset_invite',
     'resolve_invite',
 ]
@@ -109,6 +110,15 @@ def _raw_token(secret: SecretStr, invite_id: uuid.UUID) -> str:
     """Derive the raw token for an invite id from the server secret."""
     digest = hmac.new(secret.get_secret_value().encode(), invite_id.bytes, hashlib.sha256).digest()
     return base64.urlsafe_b64encode(digest).decode().rstrip('=')[:TOKEN_LENGTH]
+
+
+def raw_invite_token(settings: Settings, invite_id: uuid.UUID) -> str:
+    """Return the raw token of an invite id, derived from the server secret and never stored.
+
+    Log in with PayPal keeps only the invite id across the PayPal round trip (D-21) and uses this
+    to join on return, so the raw token never enters PayPal's `state` or the database.
+    """
+    return _raw_token(settings.invite_secret, invite_id)
 
 
 def invite_url(settings: Settings, invite: Invite) -> str:

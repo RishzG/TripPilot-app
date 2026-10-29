@@ -12,6 +12,7 @@ from fastapi import FastAPI, Request, Response
 from trippilot import health
 from trippilot.admin import router as admin_router
 from trippilot.auth import router as auth_router
+from trippilot.auth.csrf import OriginCheckMiddleware, allowed_origins
 from trippilot.db.engine import configure_event_loop_policy
 from trippilot.demo import router as demo_router
 from trippilot.jobs.app import app as jobs_app
@@ -82,6 +83,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title='TripPilot', version='0.1.0', lifespan=lifespan)
     app.state.settings = resolved
     app.state.trip_hub = TripHub()
+
+    # Registered before the headers middleware so it sits inside it and its 403 gets the headers.
+    app.add_middleware(OriginCheckMiddleware, allowed_origins=allowed_origins(resolved))
 
     @app.middleware('http')
     async def add_security_headers(
