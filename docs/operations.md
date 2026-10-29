@@ -1,7 +1,7 @@
 # Operations
 
 How TripPilot is built, released and kept running. This file covers the hosted staging
-environment (plan 01-07); the production procedure is added by plan 01-17.
+environment (plan 01-07); the production procedure is in the "Production (01-17)" section below.
 
 ## Release pipeline
 
@@ -106,3 +106,50 @@ stays with the workspace owner.
 The staging database has a 1 GB disk (`diskSizeGB: 1`; Render's Basic tier defaults to 15 GB and
 disks can grow but never shrink). The Postgres storage charge while suspended is confirmed from
 Render billing after the first suspension.
+
+**Restart caveat (found 2026-10-29):** a Render restart requested within about 2 minutes of a deploy
+can be dropped, so `restart-proof` may report that `started_at` never changed. Wait a couple of
+minutes after a deploy (or after resuming) and run `restart-proof` again before treating it as a
+failure.
+
+## Production (01-17)
+
+Production is `trippilot-production-web`, `trippilot-production-worker` and
+`trippilot-production-db`, created from `render.production.yaml` (a second Blueprint, Blueprint Path
+`render.production.yaml`, **Auto Sync set to No** right after creation). It is never suspended: it
+stays up through Dec 21 (UD-5). It has its own PayPal sandbox app, database, webhook id, `VAULT_KEYS`
+and `INVITE_SECRET`; none of them are shared with staging (UD-1). `DEMO_MODE` is on (D-52).
+
+The Blueprint pins both services to `ghcr.io/rishzg/trippilot-app:<40-character sha>`, the creation
+baseline that already ran on staging. It never names `:main` or another moving tag. After creation
+the image that actually runs is whatever the last approved promotion deployed; the pinned sha in the
+file is only the starting point.
+
+**Promote (the only way to deploy production).** Pick a sha that is on `main`, has a `release` build
+and has been verified on staging, then:
+
+```bash
+gh workflow run promote.yml --repo RishzG/TripPilot-app --ref main -f sha=<40-character sha>
+```
+
+Open the run in GitHub (Actions, then the run, then Review deployments) and approve the pending
+`production` deployment as the required reviewer. Only after approval does the job run: it checks the
+sha is 40 hex characters and an ancestor of `origin/main`, checks `docker manifest inspect` finds the
+image, posts the production web and worker deploy hooks with `imgURL=ghcr.io/rishzg/trippilot-app:<sha>`
+(environment secrets `RENDER_PRODUCTION_WEB_DEPLOY_HOOK` and `RENDER_PRODUCTION_WORKER_DEPLOY_HOOK`)
+and polls `<PRODUCTION_BASE_URL>/api/health` for up to 10 minutes until `git_sha` equals the sha
+(`PRODUCTION_BASE_URL` is a repository variable).
+
+**Rollback** is the same command with the previous sha. Check first that the previous image works
+with the current database schema (migrations only move forward).
+
+**Never use Render's Manual Deploy or Manual Sync on production.** They skip the approval gate and
+can only redeploy the sha pinned in `render.production.yaml`, which would silently roll production
+back to the creation baseline.
+
+**Environment variable changes need a redeploy.** Render applies a changed variable only on a new
+deploy, not on a restart (same finding as staging). After changing a production variable, promote the
+sha production is already running (read it from `/api/health`) and approve it.
+
+**Freeze:** production is frozen from Nov 8 except for hotfixes (D-50). A hotfix goes through staging
+and `promote` like any other change.
