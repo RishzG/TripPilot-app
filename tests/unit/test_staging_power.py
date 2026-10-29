@@ -169,14 +169,14 @@ class World:
                 if len(self.log_pages) > 1
                 else (self.log_pages[0] if self.log_pages else {})
             )
-            body = {
+            page_body: dict[str, Any] = {
                 'hasMore': False,
                 'nextStartTime': NOW.isoformat(),
                 'nextEndTime': NOW.isoformat(),
             }
-            body.update({'logs': []})
-            body.update(page)
-            return httpx.Response(200, json=body)
+            page_body.update({'logs': []})
+            page_body.update(page)
+            return httpx.Response(200, json=page_body)
         if len(parts) >= 4 and parts[1] == 'services' and parts[3] == 'jobs':
             service_id = parts[2]
             if request.method == 'POST' and len(parts) == 4:
