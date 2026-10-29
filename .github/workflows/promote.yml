@@ -1,0 +1,112 @@
+name: promote
+
+# The ONLY way code reaches production (plan 01-17; D-49, D-50, T-01-49, T-01-62).
+#
+# Run it by hand with a full 40-character commit sha that is on main and already built by the
+# `release` workflow (and verified on staging):
+#
+#   gh workflow run promote.yml --repo RishzG/TripPilot-app --ref main -f sha=<40-char sha>
+#
+# The job is bound to the GitHub `production` Environment, which requires a human reviewer: the run
+# waits at "Review deployments" until the reviewer approves, and only then are the environment
+# secrets (the production Render deploy hooks) available. The Environment also restricts deployments
+# to protected branches. Rollback is this same workflow with the previous sha.
+#
+# Never add a pull_request or push trigger here: the deploy hooks are bearer secrets (T-01-19).
+# The sha input reaches the shell only through environment variables, never through expression
+# interpolation inside a run script (script-injection hardening).
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full 40-character commit sha on main whose image ghcr.io/rishzg/trippilot-app:<sha> exists
+        required: true
+        type: string
+
+concurrency:
+  group: promote-production
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/rishzg/trippilot-app
+
+jobs:
+  deploy-production:
+    name: deploy-production
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    environment: production
+    env:
+      PROMOTE_SHA: ${{ inputs.sha }}
+      PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+    steps:
+      - name: Validate the sha input
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$PROMOTE_SHA" | grep -Eq '^[0-9a-f]{40}$'; then
+            echo "sha must be exactly 40 lowercase hex characters" >&2
+            exit 1
+          fi
+          if [ -z "${PRODUCTION_BASE_URL:-}" ]; then
+            echo "repository variable PRODUCTION_BASE_URL is not set" >&2
+            exit 1
+          fi
+
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Require the sha to be on main
+        run: |
+          set -euo pipefail
+          git cat-file -e "${PROMOTE_SHA}^{commit}"
+          if ! git merge-base --is-ancestor "$PROMOTE_SHA" origin/main; then
+            echo "$PROMOTE_SHA is not an ancestor of origin/main" >&2
+            exit 1
+          fi
+
+      - name: Require the image to exist
+        run: |
+          set -euo pipefail
+          # The GHCR package is public, so an anonymous manifest lookup works without a login.
+          docker manifest inspect "$IMAGE:$PROMOTE_SHA" > /dev/null
+
+      - name: Deploy this image to production web and worker
+        env:
+          WEB_HOOK: ${{ secrets.RENDER_PRODUCTION_WEB_DEPLOY_HOOK }}
+          WORKER_HOOK: ${{ secrets.RENDER_PRODUCTION_WORKER_DEPLOY_HOOK }}
+        run: |
+          set -euo pipefail
+          image_url="$IMAGE:$PROMOTE_SHA"
+          encoded=$(IMAGE_URL="$image_url" python3 -c "import os, urllib.parse; print(urllib.parse.quote(os.environ['IMAGE_URL'], safe=''))")
+          for hook in "$WEB_HOOK" "$WORKER_HOOK"; do
+            if [ -z "$hook" ]; then
+              echo "a production deploy hook secret is empty" >&2
+              exit 1
+            fi
+            status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${hook}&imgURL=${encoded}")
+            case "$status" in
+              200|202) ;;
+              *) echo "deploy hook returned HTTP $status" >&2; exit 1 ;;
+            esac
+          done
+
+      - name: Wait until production serves this commit
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 600))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            body=$(curl -fsS --max-time 10 "${PRODUCTION_BASE_URL%/}/api/health" || true)
+            sha=$(printf '%s' "$body" | python3 -c "import json, sys; print(json.load(sys.stdin).get('git_sha', ''))" 2>/dev/null || true)
+            if [ "$sha" = "$PROMOTE_SHA" ]; then
+              echo "production is serving $PROMOTE_SHA"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "production did not report $PROMOTE_SHA within 10 minutes" >&2
+          exit 1
