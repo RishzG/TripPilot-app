@@ -139,11 +139,14 @@ async def test_trip_name_of_exactly_80_characters_is_accepted(
     assert response.status_code == 201
 
 
-def test_seam_routers_have_their_prefixes_and_only_planned_routes() -> None:
+def test_seam_routers_have_their_prefixes_and_only_planned_routes(make_app: MakeApp) -> None:
     from trippilot.admin import router as admin_router
     from trippilot.payments import router as payments_router
 
-    payments_paths = {route.path for route in payments_router.router.routes}  # type: ignore[attr-defined]  # BaseRoute has no .path
+    # The payments router includes the webhook router, so its own route list holds an include
+    # marker rather than flat paths; the app's OpenAPI document lists the real paths.
+    paths = set(make_app(False).openapi()['paths'])
+    payments_paths = {path for path in paths if path.startswith('/api/paypal')}
 
     assert payments_router.router.prefix == '/api/paypal'
     assert admin_router.router.prefix == '/api/admin'
@@ -153,16 +156,19 @@ def test_seam_routers_have_their_prefixes_and_only_planned_routes() -> None:
         '/api/paypal/vault/payment-token',
         '/api/paypal/vault/status',
         '/api/paypal/vault',
+        '/api/paypal/webhooks',
     }
-    assert admin_router.router.routes == []
+    assert {path for path in paths if path.startswith('/api/admin')} == {
+        '/api/admin/sandbox-checks'
+    }
 
 
-def test_app_mounts_the_payments_routes_and_the_still_empty_admin_seam(
+def test_app_mounts_the_payments_and_the_admin_routes(
     make_app: MakeApp,
 ) -> None:
     paths = set(make_app(False).openapi()['paths'])
 
-    assert not any(path.startswith('/api/admin') for path in paths)
+    assert '/api/admin/sandbox-checks' in paths
     assert {'/api/paypal/config', '/api/paypal/vault/status'} <= paths
     assert '/api/trips' in paths
     assert '/api/trips/{trip_id}' in paths
