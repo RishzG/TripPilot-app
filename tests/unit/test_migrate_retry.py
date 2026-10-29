@@ -47,7 +47,7 @@ def test_connect_retries_until_the_database_accepts_connections(
         assert kwargs == {'autocommit': True}
         return connection
 
-    monkeypatch.setattr(migrate.psycopg, 'connect', fake_connect)
+    monkeypatch.setattr(psycopg, 'connect', fake_connect)
 
     result = migrate.connect_for_lock(
         'postgresql://db/x', sleep=clock.sleep, monotonic=clock.monotonic
@@ -67,7 +67,7 @@ def test_connect_gives_up_after_the_timeout_with_the_last_error(
     def refuse(dsn: str, **kwargs: Any) -> object:
         raise psycopg.OperationalError('connection refused')
 
-    monkeypatch.setattr(migrate.psycopg, 'connect', refuse)
+    monkeypatch.setattr(psycopg, 'connect', refuse)
 
     with pytest.raises(psycopg.OperationalError, match='connection refused'):
         migrate.connect_for_lock('postgresql://db/x', sleep=clock.sleep, monotonic=clock.monotonic)

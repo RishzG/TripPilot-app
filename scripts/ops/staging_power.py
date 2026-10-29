@@ -11,9 +11,10 @@ only while someone needs it. This script drives it through the Render API:
     restart-proof  create a smoke trip, restart web and worker, wait for a new process start
                    time and a fresh worker heartbeat, then read the trip back
 
-Configuration comes from the environment (source the git-ignored .env.staging first):
-RENDER_API_KEY, STAGING_BASE_URL, STAGING_WEB_SERVICE_ID, STAGING_WORKER_SERVICE_ID and
-STAGING_DB_ID. Every `gh` call names its repository with `--repo` (module constant
+Configuration: RENDER_API_KEY, STAGING_BASE_URL, STAGING_WEB_SERVICE_ID, STAGING_WORKER_SERVICE_ID
+and STAGING_DB_ID, read from the git-ignored .env.staging at the repo root (another path with
+STAGING_ENV_FILE); variables already set in the environment win over the file, so sourcing the
+file first still works. Every `gh` call names its repository with `--repo` (module constant
 `GH_REPO_DEFAULT`, overridable with the GH_REPO environment variable), because this checkout's
 default `gh` repository is the wrong upstream. The Render API key goes only into the Render
 `Authorization` header: it is never printed, logged, passed to a subprocess or sent to staging.
@@ -45,6 +46,7 @@ DEFAULT_RESTART_TIMEOUT = 180
 HTTP_TIMEOUT_SECONDS = 30.0
 SUBPROCESS_TIMEOUT_SECONDS = 180.0
 SMOKE_SCRIPT = Path(__file__).resolve().parents[1] / 'smoke' / 'hosted_persistence.py'
+ENV_FILE_DEFAULT = Path(__file__).resolve().parents[2] / '.env.staging'
 REQUIRED_ENV = (
     'RENDER_API_KEY',
     'STAGING_BASE_URL',
@@ -69,6 +71,30 @@ class Config:
     web_id: str
     worker_id: str
     db_id: str
+
+
+def load_env_file(path: Path) -> dict[str, str]:
+    """Parse a dotenv-style file into a mapping; a missing file is an empty mapping.
+
+    Accepts `KEY=value`, an optional `export ` prefix, surrounding single or double quotes, blank
+    lines, `#` comments and a leading UTF-8 BOM (Notepad writes one). Lines without `=` are skipped.
+    Values are never printed.
+    """
+    if not path.is_file():
+        return {}
+    values: dict[str, str] = {}
+    for raw in path.read_text(encoding='utf-8-sig').splitlines():
+        line = raw.strip()
+        if not line or line.startswith('#') or '=' not in line:
+            continue
+        key, value = line.split('=', 1)
+        key = key.strip().removeprefix('export ').strip()
+        value = value.strip()
+        if len(value) >= 2 and value[0] == value[-1] and value[0] in ('"', "'"):
+            value = value[1:-1]
+        if key:
+            values[key] = value
+    return values
 
 
 def load_config(env: Mapping[str, str]) -> Config:
@@ -277,7 +303,11 @@ def main(
 ) -> int:
     """Run one subcommand; return 0 on success, 1 on a failed step and 2 on missing settings."""
     args = build_parser().parse_args(list(argv))
-    environment = os.environ if env is None else env
+    if env is None:
+        env_file = Path(os.environ.get('STAGING_ENV_FILE') or ENV_FILE_DEFAULT)
+        environment: Mapping[str, str] = {**load_env_file(env_file), **os.environ}
+    else:
+        environment = env
     try:
         config = load_config(environment)
     except StagingError as error:
