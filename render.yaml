@@ -1,0 +1,102 @@
+# TripPilot STAGING Blueprint (plan 01-07; D-49, D-50, D-52, UD-1, UD-3, UD-5).
+#
+# Production has its own Blueprint file (render.production.yaml, plan 01-17). Staging and
+# production never share a PayPal app, database, webhook id or VAULT_KEYS (UD-1).
+#
+# Image-runtime services: Render pulls ghcr.io/rishzg/trippilot-app and does NOT redeploy when
+# the tag moves. The `release` GitHub workflow calls each service's deploy hook with
+# `imgURL=ghcr.io/rishzg/trippilot-app:<sha>` while the repo variable STAGING_ACTIVE is true.
+# `:main` below is only the tag Render uses at creation and when a suspended service resumes.
+#
+# Secrets: every `sync: false` value is prompted for once in the Dashboard at Blueprint creation
+# and is never stored in git. Render does not allow `sync: false` inside an environment group, so
+# the secrets are declared on each service (enter the same value for web and worker) and the group
+# holds only the shared non-secret settings.
+#
+# Monthly prices are Render's published list prices (render.com/pricing). Staging is suspended
+# between uses (UD-5; scripts/ops/staging_power.py) so real spend is lower than the always-on sum.
+# Plan IDs follow RESEARCH R7 and must be accepted by the Blueprint preview (human step, 01-07
+# Task 2).
+
+services:
+  - type: web
+    name: trippilot-staging-web
+    runtime: image
+    image:
+      url: ghcr.io/rishzg/trippilot-app:main
+    region: oregon
+    plan: 0.5c-512mb # Starter, $7/month
+    healthCheckPath: /api/health
+    preDeployCommand: python -m trippilot.db.migrate
+    envVars:
+      - fromGroup: trippilot-staging-env
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trippilot-staging-db
+          property: connectionString
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_LOGIN_REDIRECT_URI
+        sync: false
+      - key: VAULT_KEYS
+        sync: false
+      - key: INVITE_SECRET
+        sync: false
+
+  - type: worker
+    name: trippilot-staging-worker
+    runtime: image
+    image:
+      url: ghcr.io/rishzg/trippilot-app:main
+    region: oregon
+    plan: 0.5c-512mb # Starter, $7/month
+    dockerCommand: procrastinate --app=trippilot.jobs.app.app worker
+    envVars:
+      - fromGroup: trippilot-staging-env
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trippilot-staging-db
+          property: connectionString
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_LOGIN_REDIRECT_URI
+        sync: false
+      - key: VAULT_KEYS
+        sync: false
+      - key: INVITE_SECRET
+        sync: false
+
+databases:
+  - name: trippilot-staging-db
+    plan: 0.1c-256mb # $6/month (UD-3); 1 GB SSD included, 100 connections
+    region: oregon
+    postgresMajorVersion: '16' # same major version as docker-compose and CI
+    databaseName: trippilot_staging
+    user: trippilot
+    ipAllowList: [] # private network only: only the staging web and worker can connect
+
+envVarGroups:
+  - name: trippilot-staging-env
+    envVars:
+      - key: APP_ENV
+        value: staging
+      - key: DEMO_MODE # D-52: staging runs the demo personas
+        value: 'true'
+      - key: PAYPAL_MODE
+        value: sandbox # the existing sandbox app (UD-1)

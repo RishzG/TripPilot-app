@@ -1,0 +1,89 @@
+name: release
+
+# Build the release image once per push to main, push it to GHCR, and (only while staging is
+# resumed) deploy exactly that image to Render staging. Production promotion lives in its own
+# approval-gated workflow (plan 01-17) and pins a sha from this registry.
+#
+# Never add a pull_request trigger here: the deploy hooks are bearer secrets (T-01-19).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: release
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  IMAGE: ghcr.io/rishzg/trippilot-app
+
+jobs:
+  build-push:
+    name: build-push
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    steps:
+      - uses: actions/checkout@v7
+      - uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build the release image once
+        run: docker build --build-arg GIT_SHA=${{ github.sha }} -t "$IMAGE:${{ github.sha }}" -t "$IMAGE:main" .
+      - name: Push the sha tag
+        run: docker push "$IMAGE:${{ github.sha }}"
+      - name: Push the moving main tag (staging creation and resume only)
+        if: github.ref == 'refs/heads/main'
+        run: docker push "$IMAGE:main"
+
+  # An explicit gate, not a tolerated failure: while staging is suspended (STAGING_ACTIVE is not
+  # 'true', UD-5) this job is skipped and `staging_power.py resume` deploys the current main sha.
+  deploy-staging:
+    name: deploy-staging
+    needs: build-push
+    if: vars.STAGING_BASE_URL != '' && vars.STAGING_ACTIVE == 'true'
+    runs-on: ubuntu-latest
+    env:
+      STAGING_BASE_URL: ${{ vars.STAGING_BASE_URL }}
+      EXPECTED_SHA: ${{ github.sha }}
+    steps:
+      - name: Deploy this image to staging web and worker
+        env:
+          WEB_HOOK: ${{ secrets.RENDER_STAGING_WEB_DEPLOY_HOOK }}
+          WORKER_HOOK: ${{ secrets.RENDER_STAGING_WORKER_DEPLOY_HOOK }}
+        run: |
+          set -euo pipefail
+          image_url="$IMAGE:$EXPECTED_SHA"
+          encoded=$(IMAGE_URL="$image_url" python3 -c "import os, urllib.parse; print(urllib.parse.quote(os.environ['IMAGE_URL'], safe=''))")
+          for hook in "$WEB_HOOK" "$WORKER_HOOK"; do
+            if [ -z "$hook" ]; then
+              echo "a staging deploy hook secret is empty" >&2
+              exit 1
+            fi
+            status=$(curl -sS -o /dev/null -w '%{http_code}' -X POST "${hook}&imgURL=${encoded}")
+            case "$status" in
+              200|202) ;;
+              *) echo "deploy hook returned HTTP $status" >&2; exit 1 ;;
+            esac
+          done
+      - name: Wait until staging serves this commit
+        run: |
+          set -euo pipefail
+          deadline=$((SECONDS + 600))
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            body=$(curl -fsS --max-time 10 "${STAGING_BASE_URL%/}/api/health" || true)
+            sha=$(printf '%s' "$body" | python3 -c "import json, sys; print(json.load(sys.stdin).get('git_sha', ''))" 2>/dev/null || true)
+            if [ "$sha" = "$EXPECTED_SHA" ]; then
+              echo "staging is serving $EXPECTED_SHA"
+              exit 0
+            fi
+            sleep 15
+          done
+          echo "staging did not report $EXPECTED_SHA within 10 minutes" >&2
+          exit 1
