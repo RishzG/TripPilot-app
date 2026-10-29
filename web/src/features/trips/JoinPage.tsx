@@ -2,43 +2,15 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, Navigate, useParams } from 'react-router';
 import { ApiError, api, unwrap } from '../../lib/api';
 import { useMe } from '../auth/useMe';
+import { BAD_LINK, Notice, REFUSALS } from './joinNotices';
 
 const SUBMIT_FAILED_MESSAGE =
   "Couldn't save that. Nothing was changed, so try again.";
-
-const REFUSALS: Record<string, { heading: string; body: string }> = {
-  removed: {
-    heading: "You can't join this trip",
-    body: 'The organiser removed you from this trip. Ask them to add you back.',
-  },
-  full: {
-    heading: 'This trip is full',
-    body: 'It already has 12 people.',
-  },
-  closed: {
-    heading: 'Joining is closed',
-    body: 'Ask the organiser to open it again.',
-  },
-};
-
-const BAD_LINK = {
-  heading: "This invite link isn't working",
-  body: 'It may have been reset. Ask the organiser for a new one.',
-};
 
 const BUTTON_CLASS =
   'inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-accent px-4 text-base font-semibold text-accent-foreground disabled:opacity-50';
 const QUIET_CLASS =
   'inline-flex min-h-11 w-full items-center justify-center rounded-lg px-4 text-base font-semibold';
-
-function Notice({ heading, body }: { heading: string; body: string }) {
-  return (
-    <div className="mx-auto w-full max-w-md p-4 pt-6">
-      <h1 className="text-xl font-semibold leading-[1.2]">{heading}</h1>
-      <p className="mt-2 text-muted-foreground">{body}</p>
-    </div>
-  );
-}
 
 function Loading() {
   return (
@@ -135,6 +107,7 @@ export function JoinPage() {
   if (signedOut) {
     const next = encodeURIComponent(`/join/${token}`);
     const demoAvailable = demo.isSuccess && demo.data.length > 0;
+    const loginHref = `/api/auth/paypal/start?invite=${encodeURIComponent(token)}`;
     return (
       <div className="mx-auto w-full max-w-md p-4 pt-6">
         <h1 className="text-balance break-words text-[1.75rem] font-semibold leading-[1.2]">
@@ -142,9 +115,9 @@ export function JoinPage() {
         </h1>
         <p className="mt-2 text-base">Sign in to join and see who's in.</p>
         <div className="mt-6 flex flex-col gap-2">
-          <Link to={`/signin?next=${next}`} className={BUTTON_CLASS}>
+          <a href={loginHref} className={BUTTON_CLASS}>
             Sign in to join
-          </Link>
+          </a>
           {demoAvailable && (
             <Link to={`/demo?next=${next}`} className={QUIET_CLASS}>
               Join as a demo friend

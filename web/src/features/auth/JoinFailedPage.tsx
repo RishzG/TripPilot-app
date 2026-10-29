@@ -1,4 +1,11 @@
-/** Skeleton so the failing tests run against a component that renders nothing yet. */
+import { useSearchParams } from 'react-router';
+import { Notice, noticeForReason } from '../trips/joinNotices';
+
+/**
+ * Where Log in with PayPal sends someone whose invite could not be used (full, closed, removed
+ * per UD-4, or a link that no longer works). They are signed in already; only the join failed.
+ */
 export function JoinFailedPage() {
-  return null;
+  const [searchParams] = useSearchParams();
+  return <Notice {...noticeForReason(searchParams.get('reason'))} />;
 }
