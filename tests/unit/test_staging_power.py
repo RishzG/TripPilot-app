@@ -387,3 +387,50 @@ def test_missing_environment_variables_are_named_without_values(
     assert 'RENDER_API_KEY' in err
     assert BASE_URL not in err
     assert w.events == []
+
+
+def test_the_env_file_is_parsed_like_a_dotenv_file(sp: Any, tmp_path: Path) -> None:
+    """Comments, blanks, `export`, quotes and a Notepad BOM are handled; values stay verbatim."""
+    env_file = tmp_path / 'staging.env'
+    env_file.write_text(
+        '\ufeff# staging power settings\n'
+        '\n'
+        'RENDER_API_KEY=rnd_abc=def\n'
+        'export STAGING_BASE_URL="https://staging.example.test"\n'
+        "STAGING_DB_ID='dpg-db'\n"
+        '  STAGING_WEB_SERVICE_ID = srv-web  \n'
+        'not a setting\n',
+        encoding='utf-8',
+    )
+
+    assert sp.load_env_file(env_file) == {
+        'RENDER_API_KEY': 'rnd_abc=def',
+        'STAGING_BASE_URL': 'https://staging.example.test',
+        'STAGING_DB_ID': 'dpg-db',
+        'STAGING_WEB_SERVICE_ID': 'srv-web',
+    }
+
+
+def test_a_missing_env_file_is_an_empty_mapping(sp: Any, tmp_path: Path) -> None:
+    """No file means no values, not an error (the environment may already hold them)."""
+    assert sp.load_env_file(tmp_path / 'absent.env') == {}
+
+
+def test_main_reads_the_env_file_and_the_process_environment_wins(
+    sp: Any, world: World_, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Without an explicit env, main loads STAGING_ENV_FILE and lets real variables override it."""
+    w, _router = world
+    env_file = tmp_path / 'staging.env'
+    lines = [f'{key}={value}' for key, value in ENV.items() if key != 'STAGING_DB_ID']
+    env_file.write_text('\n'.join([*lines, 'STAGING_DB_ID=dpg-from-file']) + '\n', encoding='utf-8')
+    for key in ENV:
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv('STAGING_ENV_FILE', str(env_file))
+    monkeypatch.setenv('STAGING_DB_ID', 'dpg-db')
+
+    code = sp.main(['status'], runner=w.run, sleep=w.sleep, monotonic=w.monotonic)
+
+    assert code == 0
+    assert ('http', 'GET', f'{RENDER}/postgres/dpg-db') in w.events
+    assert w.render_auth[0] == f'Bearer {API_KEY}'

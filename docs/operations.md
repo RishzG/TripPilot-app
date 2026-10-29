@@ -21,9 +21,11 @@ the only deploy mechanism.
 
 Migrations run once per deploy: the web service's pre-deploy command is
 `python -m trippilot.db.migrate`, which takes a Postgres advisory lock (key 727001) before
-`alembic upgrade head`, so concurrent runs queue up and the second one upgrades nothing. If a
-Render deploy turns out to ignore the pre-deploy command for image services, the fallback is to
-run the same module in the web start command before uvicorn (the lock makes that safe).
+`alembic upgrade head`, so concurrent runs queue up and the second one upgrades nothing. Render
+runs the pre-deploy command for image services (confirmed on the first staging deploy,
+2026-10-29). A brand-new Postgres can refuse connections for a short while after Render reports it
+created, so the lock connection retries every 2 seconds for up to 60 seconds before the deploy
+fails.
 
 `GET /api/health` reports `status`, `git_sha`, `db`, `worker_last_seen_seconds` (age of the newest
 worker heartbeat), `paypal_vault_scope` (true or false from the cached PayPal token, null when
@@ -41,11 +43,11 @@ staging is suspended. Any teammate may resume staging for staging work and must 
 end of that work session.
 
 **Commands.** Put `RENDER_API_KEY`, `STAGING_BASE_URL`, `STAGING_WEB_SERVICE_ID`,
-`STAGING_WORKER_SERVICE_ID` and `STAGING_DB_ID` in the git-ignored `.env.staging` (never commit it,
-never make the key a GitHub secret), then:
+`STAGING_WORKER_SERVICE_ID` and `STAGING_DB_ID` in the git-ignored `.env.staging` at the repo root
+(never commit it, never make the key a GitHub secret). The script reads that file itself; variables
+already set in the shell win, and `STAGING_ENV_FILE` points it at another file. Then:
 
 ```bash
-set -a; . ./.env.staging; set +a
 uv run python scripts/ops/staging_power.py status
 uv run python scripts/ops/staging_power.py resume
 uv run python scripts/ops/staging_power.py suspend
@@ -73,7 +75,16 @@ in with PayPal redirect (01-12), webhook registration and deliveries (01-13 and 
 enrolment. PayPal retries failed webhook deliveries for 3 days, so a suspended window does not lose
 events, but nothing is processed until staging is back.
 
-Spend alert: pending (filled by 01-07 Task 3)
+Spend alert: no alert available; Track B checks Render billing every Monday.
 
-The Postgres storage charge while suspended is confirmed from Render billing after the first
-suspension.
+Render's Hobby workspace offers no spend or credit-usage notification (checked 2026-10-29: Billing
+has Plan, Payment Method, Included Usage, Unbilled Charges and Credit Balance only). The Monday
+check: Billing -> Credit Balance (what is left of the one-time $50 credit) and Unbilled Charges
+(this month so far); below about $10 left, tell the team and make sure staging is suspended. The
+build pipeline keeps its $0 spend limit (500 free minutes cover the pre-deploy migrations), so
+build minutes can never be charged. Hobby workspaces cannot add team members, so Render access
+stays with the workspace owner.
+
+The staging database has a 1 GB disk (`diskSizeGB: 1`; Render's Basic tier defaults to 15 GB and
+disks can grow but never shrink). The Postgres storage charge while suspended is confirmed from
+Render billing after the first suspension.
