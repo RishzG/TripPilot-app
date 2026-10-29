@@ -24,7 +24,7 @@ export function useMe() {
  * session fetched is shown after sign-in (the cache is per browser, not per account).
  */
 export function forgetSignedInState(queryClient: QueryClient) {
-  for (const key of ['me', 'invite', 'trips', 'trip']) {
+  for (const key of ['me', 'invite', 'trips', 'trip', 'vault-status']) {
     queryClient.removeQueries({ queryKey: [key] });
   }
 }
