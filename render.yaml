@@ -84,7 +84,8 @@ services:
 
 databases:
   - name: trippilot-staging-db
-    plan: 0.1c-256mb # $6/month (UD-3); 1 GB SSD included, 100 connections
+    plan: 0.1c-256mb # $6/month compute (UD-3), 100 connections
+    diskSizeGB: 1 # ~$0.30/month; Basic defaults to 15 GB (~$4.50/month); disks grow, never shrink
     region: oregon
     postgresMajorVersion: '16' # same major version as docker-compose and CI
     databaseName: trippilot_staging
