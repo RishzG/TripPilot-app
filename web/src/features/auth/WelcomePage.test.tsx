@@ -1,5 +1,11 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import type { Mock } from 'vitest';
 import { api } from '../../lib/api';
@@ -36,10 +42,11 @@ vi.mock('../paypal/SavePayPalButton', () => ({
 
 vi.mock('../../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api')>();
-  return { ...actual, api: { GET: vi.fn(), POST: vi.fn() } };
+  return { ...actual, api: { GET: vi.fn(), POST: vi.fn(), PATCH: vi.fn() } };
 });
 
 const get = api.GET as unknown as Mock;
+const patch = api.PATCH as unknown as Mock;
 
 interface Reply {
   status: number;
@@ -118,6 +125,7 @@ function renderWelcome() {
 describe('WelcomePage', () => {
   beforeEach(() => {
     get.mockReset();
+    patch.mockReset();
     button.props = null;
   });
 
@@ -219,5 +227,117 @@ describe('WelcomePage', () => {
     await waitFor(() =>
       expect(router.state.location.pathname).toBe('/trips/trip-1'),
     );
+  });
+
+  describe('avatar step', () => {
+    it('offers the picker with the nickname prefilled from the PayPal name', async () => {
+      serve(ROUTES);
+      renderWelcome();
+
+      expect(
+        await screen.findByRole('heading', {
+          level: 2,
+          name: 'Pick your look',
+        }),
+      ).toBeTruthy();
+      expect(
+        screen.getByText(
+          'Initials or an illustration. You can change it later.',
+        ),
+      ).toBeTruthy();
+      const field = screen.getByLabelText(
+        'Your name in the group',
+      ) as HTMLInputElement;
+      expect(field.value).toBe('Jo');
+      expect(screen.getByText('Friends see this name.')).toBeTruthy();
+      expect(
+        within(screen.getByRole('radiogroup', { name: 'Avatar' })).getAllByRole(
+          'radio',
+        ),
+      ).toHaveLength(17);
+      expect(screen.getByRole('button', { name: 'Save my look' })).toBeTruthy();
+    });
+
+    it('does not ask again once the member has an illustrated avatar', async () => {
+      serve({
+        ...ROUTES,
+        '/api/me': {
+          status: 200,
+          data: {
+            ...(ME.data as object),
+            avatar_kind: 'illustrated',
+            avatar_key: 'sam',
+          },
+        },
+      });
+      renderWelcome();
+
+      await screen.findByText('Save PayPal for this trip');
+      expect(screen.queryByText('Pick your look')).toBeNull();
+    });
+
+    it('does not ask a demo persona', async () => {
+      serve({
+        ...ROUTES,
+        '/api/me': {
+          status: 200,
+          data: { ...(ME.data as object), kind: 'persona', is_persona: true },
+        },
+      });
+      renderWelcome();
+
+      await screen.findByText('Save PayPal for this trip');
+      expect(screen.queryByText('Pick your look')).toBeNull();
+    });
+
+    it('saves the look with PATCH /api/me without blocking the trip', async () => {
+      serve(ROUTES);
+      patch.mockResolvedValue(
+        reply({
+          status: 200,
+          data: {
+            ...(ME.data as object),
+            nickname: 'Jojo',
+            avatar_kind: 'illustrated',
+            avatar_key: 'sam',
+          },
+        }),
+      );
+      const router = renderWelcome();
+      await screen.findByText('Pick your look');
+
+      fireEvent.change(screen.getByLabelText('Your name in the group'), {
+        target: { value: 'Jojo' },
+      });
+      fireEvent.click(screen.getByRole('radio', { name: 'Avatar 2' }));
+      fireEvent.click(screen.getByRole('button', { name: 'Save my look' }));
+
+      await waitFor(() =>
+        expect(patch).toHaveBeenCalledWith('/api/me', {
+          body: {
+            nickname: 'Jojo',
+            avatar_kind: 'illustrated',
+            avatar_key: 'sam',
+          },
+        }),
+      );
+      expect(router.state.location.pathname).toBe('/welcome/trip-1');
+      expect(screen.getByText('Pick your look')).toBeTruthy();
+      expect(screen.getByRole('link', { name: 'Skip for now' })).toBeTruthy();
+    });
+
+    it('lets the member skip without saving a look', async () => {
+      serve(ROUTES);
+      const router = renderWelcome();
+
+      fireEvent.click(
+        await screen.findByRole('link', { name: 'Skip for now' }),
+      );
+
+      await waitFor(() =>
+        expect(router.state.location.pathname).toBe('/trips/trip-1'),
+      );
+      expect(patch).not.toHaveBeenCalled();
+    });
   });
 });
