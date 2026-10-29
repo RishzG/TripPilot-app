@@ -1,0 +1,116 @@
+# TripPilot PRODUCTION Blueprint (plan 01-17; D-49, D-50, D-51, D-52, UD-1, UD-3, UD-5).
+#
+# HOW THIS FILE IS USED
+#   - Create it once in the Render Dashboard: New -> Blueprint -> this repository, with the
+#     Blueprint Path field set to render.production.yaml (render.yaml is the staging Blueprint).
+#   - Immediately after creation open the Blueprint's Settings and set Auto Sync to No, so a merge
+#     to main never touches production.
+#   - The image tag below is the CREATION BASELINE: a full 40-character commit sha that already ran
+#     on staging (verified 2026-10-29: health git_sha matched, db ok, worker heartbeat,
+#     paypal_vault_scope true, restart persistence passed). It is never `:main` or any other moving
+#     tag.
+#   - After creation, EVERY production deploy goes through the `promote` GitHub workflow
+#     (.github/workflows/promote.yml): a required reviewer approves the `production` Environment,
+#     the workflow posts the production deploy hooks with imgURL=ghcr.io/rishzg/trippilot-app:<sha>.
+#     Rollback is promoting the previous sha through the same workflow.
+#   - NEVER use Render's Manual Deploy or Manual Sync on production. Both can only redeploy the sha
+#     written here, but they skip the approval gate and would drag production back to this baseline.
+#   - To change this file (for example a new plan), edit it on main and apply the change by hand in
+#     the Dashboard; the pinned sha stays as the baseline and does not need to follow promotions.
+#
+# UD-1 SEPARATION: production has its own PayPal sandbox app, Postgres, webhook id, VAULT_KEYS and
+# INVITE_SECRET. None of those values is ever shared with staging (render.yaml).
+#
+# Secrets: every `sync: false` value is prompted for once in the Dashboard at Blueprint creation and
+# is never stored in git. Render does not allow `sync: false` inside an environment group, so the
+# secrets are declared on each service (enter the same value for web and worker) and the group holds
+# only the shared non-secret settings. Leave PAYPAL_WEBHOOK_ID blank at creation; plan 01-17 Task 3
+# registers the production webhook and sets it (an env-var change needs a redeploy through promote).
+#
+# Monthly prices are Render's published list prices (render.com/pricing), the same plan ids the
+# staging Blueprint preview accepted (01-07). Production is never suspended: always on through
+# Dec 21 (UD-5), about $20.30/month in total.
+
+services:
+  - type: web
+    name: trippilot-production-web
+    runtime: image
+    image:
+      url: ghcr.io/rishzg/trippilot-app:8be68caae6215448f68a1ea46effae5f2f845682
+    region: oregon
+    plan: 0.5c-512mb # Starter, $7/month
+    healthCheckPath: /api/health
+    preDeployCommand: python -m trippilot.db.migrate
+    envVars:
+      - fromGroup: trippilot-production-env
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trippilot-production-db
+          property: connectionString
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_LOGIN_REDIRECT_URI
+        sync: false
+      - key: VAULT_KEYS
+        sync: false
+      - key: INVITE_SECRET
+        sync: false
+
+  - type: worker
+    name: trippilot-production-worker
+    runtime: image
+    image:
+      url: ghcr.io/rishzg/trippilot-app:8be68caae6215448f68a1ea46effae5f2f845682
+    region: oregon
+    plan: 0.5c-512mb # Starter, $7/month
+    dockerCommand: procrastinate --app=trippilot.jobs.app.app worker
+    envVars:
+      - fromGroup: trippilot-production-env
+      - key: DATABASE_URL
+        fromDatabase:
+          name: trippilot-production-db
+          property: connectionString
+      - key: PUBLIC_BASE_URL
+        sync: false
+      - key: ADMIN_EMAILS
+        sync: false
+      - key: PAYPAL_CLIENT_ID
+        sync: false
+      - key: PAYPAL_CLIENT_SECRET
+        sync: false
+      - key: PAYPAL_WEBHOOK_ID
+        sync: false
+      - key: PAYPAL_LOGIN_REDIRECT_URI
+        sync: false
+      - key: VAULT_KEYS
+        sync: false
+      - key: INVITE_SECRET
+        sync: false
+
+databases:
+  - name: trippilot-production-db
+    plan: 0.1c-256mb # $6/month compute (UD-3, D-51), 100 connections
+    diskSizeGB: 1 # ~$0.30/month; Basic defaults to 15 GB (~$4.50/month); disks grow, never shrink
+    region: oregon
+    postgresMajorVersion: '16' # same major version as docker-compose, CI and staging
+    databaseName: trippilot_production
+    user: trippilot
+    ipAllowList: [] # private network only: only the production web and worker can connect
+
+envVarGroups:
+  - name: trippilot-production-env
+    envVars:
+      - key: APP_ENV
+        value: production
+      - key: DEMO_MODE # D-52: the judge-facing environment runs the demo personas
+        value: 'true'
+      - key: PAYPAL_MODE
+        value: sandbox # a NEW sandbox app, never the staging one (UD-1)
