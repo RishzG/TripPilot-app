@@ -304,7 +304,6 @@ async def test_trip_member_entries_show_names_and_avatars_but_never_saved_paypal
 
 def test_the_allowed_avatar_keys_match_the_ui_spec_set_and_the_bundled_files() -> None:
     from trippilot.auth.avatars import ILLUSTRATED_AVATAR_KEYS
-
     from trippilot.demo.cast import CAST
 
     index = (AVATAR_DIR / 'index.ts').read_text(encoding='utf-8')
