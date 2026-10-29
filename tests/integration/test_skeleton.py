@@ -158,15 +158,17 @@ def test_seam_routers_have_their_prefixes_and_only_planned_routes(make_app: Make
         '/api/paypal/vault',
         '/api/paypal/webhooks',
     }
-    assert admin_router.router.routes == []
+    assert {path for path in paths if path.startswith('/api/admin')} == {
+        '/api/admin/sandbox-checks'
+    }
 
 
-def test_app_mounts_the_payments_routes_and_the_still_empty_admin_seam(
+def test_app_mounts_the_payments_and_the_admin_routes(
     make_app: MakeApp,
 ) -> None:
     paths = set(make_app(False).openapi()['paths'])
 
-    assert not any(path.startswith('/api/admin') for path in paths)
+    assert '/api/admin/sandbox-checks' in paths
     assert {'/api/paypal/config', '/api/paypal/vault/status'} <= paths
     assert '/api/trips' in paths
     assert '/api/trips/{trip_id}' in paths
