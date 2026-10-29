@@ -1,6 +1,4 @@
-import { readFileSync } from 'node:fs';
-import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
+import indexCss from './index.css?raw';
 
 /**
  * WCAG AA contrast over the token pairs named in 01-UI-SPEC.md "Contrast pairs" (D-46).
@@ -11,10 +9,8 @@ import { fileURLToPath } from 'node:url';
  * Known failing combination, deliberately NOT listed: primary text on --muted is 4.47:1.
  */
 
-const CSS_PATH = join(dirname(fileURLToPath(import.meta.url)), 'index.css');
-
 function rootTokens(): Map<string, string> {
-  const css = readFileSync(CSS_PATH, 'utf8').replace(/\/\*[\s\S]*?\*\//g, '');
+  const css = indexCss.replace(/\/\*[\s\S]*?\*\//g, '');
   const root = /:root\s*\{([^}]*)\}/.exec(css);
   const tokens = new Map<string, string>();
   if (root?.[1] === undefined) {
@@ -200,13 +196,13 @@ describe('theme tokens', () => {
   });
 
   it('is light mode only: no dark block or dark variant in index.css', () => {
-    const css = readFileSync(CSS_PATH, 'utf8');
+    const css = indexCss;
     expect(css).not.toMatch(/\.dark\b/);
     expect(css).not.toMatch(/@custom-variant\s+dark/);
   });
 
   it('declares the self-hosted font family and the 28px display size', () => {
-    const css = readFileSync(CSS_PATH, 'utf8');
+    const css = indexCss;
     expect(css).toContain("'Plus Jakarta Sans Variable'");
     expect(css).toMatch(/--text-display:\s*1\.75rem/);
   });
