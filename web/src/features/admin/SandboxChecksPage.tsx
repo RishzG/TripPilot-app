@@ -57,7 +57,7 @@ function ErrorRetry({ onRetry }: { onRetry: () => void }) {
       <button
         type="button"
         onClick={onRetry}
-        className="mt-4 min-h-11 rounded-lg bg-accent px-4 text-base font-semibold text-accent-foreground"
+        className="mt-4 min-h-11 rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground"
       >
         Retry loading
       </button>

@@ -105,7 +105,7 @@ export function PoolBuyersPage() {
           <button
             type="button"
             onClick={() => void buyers.refetch()}
-            className="mt-4 min-h-11 rounded-lg bg-accent px-4 text-base font-semibold text-accent-foreground"
+            className="mt-4 min-h-11 rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground"
           >
             Retry loading
           </button>
@@ -238,7 +238,7 @@ export function PoolBuyersPage() {
             type="submit"
             disabled={add.isPending}
             aria-busy={add.isPending}
-            className="min-h-11 w-full rounded-lg bg-accent px-4 text-base font-semibold text-accent-foreground disabled:opacity-50"
+            className="min-h-11 w-full rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground disabled:opacity-50"
           >
             Add buyer
           </button>

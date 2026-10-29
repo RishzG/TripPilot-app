@@ -22,5 +22,7 @@ export default defineConfig({
     environment: 'jsdom',
     globals: true,
     exclude: ['node_modules', 'dist', 'e2e/**'],
+    // theme.contrast.test.ts reads index.css as text (?raw); by default Vitest blanks CSS modules.
+    css: { include: [/index\.css/] },
   },
 });

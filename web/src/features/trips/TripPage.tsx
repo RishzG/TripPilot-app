@@ -20,7 +20,7 @@ const SUBMIT_FAILED_MESSAGE =
   "Couldn't save that. Nothing was changed, so try again.";
 
 const PRIMARY_BUTTON =
-  'inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-accent px-4 text-base font-semibold text-accent-foreground disabled:opacity-50';
+  'inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground disabled:opacity-50';
 const OUTLINE_BUTTON =
   'inline-flex min-h-11 items-center justify-center rounded-lg border border-border px-4 text-base font-semibold disabled:opacity-50';
 const DANGER_BUTTON =
@@ -689,7 +689,7 @@ export function TripPage() {
         <button
           type="button"
           onClick={() => trip.refetch()}
-          className="mt-4 min-h-11 rounded-lg bg-accent px-4 text-base font-semibold text-accent-foreground"
+          className="mt-4 min-h-11 rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground"
         >
           Retry loading
         </button>

@@ -3,7 +3,7 @@ export function SandboxBanner() {
   return (
     <div
       role="status"
-      className="bg-sandbox-banner px-4 py-1 text-center text-sm font-medium text-sandbox-banner-foreground"
+      className="flex h-7 items-center justify-center bg-sandbox-banner px-4 text-center text-sm font-semibold leading-[1.4] text-sandbox-banner-foreground"
     >
       Sandbox — no real money
     </div>
