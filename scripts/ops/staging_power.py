@@ -12,6 +12,9 @@ only while someone needs it. This script drives it through the Render API:
                    time and a fresh worker heartbeat, then read the trip back
     env-keys       print only the NAMES of the environment variables set on web and worker
     set-env KEY V  set one environment variable on both web and worker (value never printed)
+    logs           print recent log lines (--minutes, --service web|worker, --limit, --text)
+    run-job CMD    run CMD as a one-off Render job on the web service's latest build and env,
+                   wait for it, print its logs, and exit 0 only if it succeeded (--timeout)
 
 Configuration: RENDER_API_KEY, STAGING_BASE_URL, STAGING_WEB_SERVICE_ID, STAGING_WORKER_SERVICE_ID
 and STAGING_DB_ID, read from the git-ignored .env.staging at the repo root (another path with
@@ -28,6 +31,19 @@ paged with `?limit=` up to 100 and `?cursor=` of the last item) and
 `PUT /v1/services/{id}/env-vars/{KEY}` with body `{"value": "..."}` (answers 200 `{"key","value"}`).
 The env commands exist because the secret-read guard stops an interactive shell from sourcing
 the env file: they print key names only and never a value.
+
+Logs and one-off jobs (plan 01-14, confirmed against api-docs.render.com on 2026-10-29):
+`GET /v1/services/{id}` supplies `ownerId` (the workspace id the logs API requires);
+`GET /v1/logs?ownerId=&resource=<service or job id>&startTime=&endTime=&direction=&limit=` (limit
+1 to 100; `text` is a substring search, wildcards and /regex/ allowed) answers
+`{"logs": [{"id", "message", "timestamp", "labels"}], "hasMore", "nextStartTime", "nextEndTime"}`
+and is paged by passing the next window back; `POST /v1/services/{id}/jobs` with
+`{"startCommand": ...}` answers `{"id", "serviceId", "startCommand", "planId", "createdAt"}`;
+`GET /v1/services/{id}/jobs/{jobId}` adds `status` (pending, running, succeeded, failed,
+canceled), `startedAt` and `finishedAt`. A job reuses the base service's latest successful build
+artifact and its environment variables as they were when the job was created; the job id is the
+log `resource`. A job's command is never echoed (it may carry a secret) and a job that outlives
+`--timeout` is reported, never cancelled, because it may be in the middle of a PayPal call.
 """
 
 from __future__ import annotations
@@ -39,6 +55,7 @@ import sys
 import time
 from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass, field
+from datetime import UTC, datetime, timedelta
 from pathlib import Path
 
 import httpx
@@ -54,6 +71,15 @@ HTTP_TIMEOUT_SECONDS = 30.0
 ENV_PAGE_LIMIT = 100
 ENV_MAX_PAGES = 50
 PROTECTED_ENV_KEYS = frozenset({'RENDER_API_KEY'})
+DEFAULT_LOG_MINUTES = 15
+DEFAULT_LOG_LIMIT = 100
+LOG_PAGE_LIMIT = 100
+LOG_MAX_PAGES = 30
+DEFAULT_JOB_TIMEOUT = 600
+JOB_LOG_LIMIT = 1000
+JOB_LOG_ATTEMPTS = 3
+JOB_LOG_PAD = timedelta(seconds=60)
+JOB_TERMINAL_STATUSES = frozenset({'succeeded', 'failed', 'canceled'})
 SUBPROCESS_TIMEOUT_SECONDS = 180.0
 SMOKE_SCRIPT = Path(__file__).resolve().parents[1] / 'smoke' / 'hosted_persistence.py'
 ENV_FILE_DEFAULT = Path(__file__).resolve().parents[2] / '.env.staging'
@@ -66,6 +92,33 @@ REQUIRED_ENV = (
 )
 
 Runner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
+
+
+def _iso(moment: datetime) -> str:
+    """Format a moment as the UTC timestamp Render's logs API takes (`2026-10-29T12:00:00Z`)."""
+    return moment.astimezone(UTC).strftime('%Y-%m-%dT%H:%M:%SZ')
+
+
+def _parse_time(value: object) -> datetime | None:
+    """Parse one of Render's ISO 8601 timestamps (any offset), or None when absent or invalid."""
+    if not isinstance(value, str):
+        return None
+    try:
+        parsed = datetime.fromisoformat(value)
+    except ValueError:
+        return None
+    return parsed if parsed.tzinfo is not None else parsed.replace(tzinfo=UTC)
+
+
+def _positive_int(raw: str) -> int:
+    """Parse a command-line integer that must be at least 1."""
+    try:
+        value = int(raw)
+    except ValueError as error:
+        raise argparse.ArgumentTypeError(f'{raw!r} is not a whole number') from error
+    if value < 1:
+        raise argparse.ArgumentTypeError('must be at least 1')
+    return value
 
 
 class StagingError(Exception):
@@ -149,6 +202,7 @@ class StagingPower:
         repo: str = GH_REPO_DEFAULT,
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic,
+        utcnow: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
         """Bind the configuration and the collaborators."""
         self._config = config
@@ -157,6 +211,7 @@ class StagingPower:
         self._repo = repo
         self._sleep = sleep
         self._monotonic = monotonic
+        self._utcnow = utcnow
 
     # -- plumbing ----------------------------------------------------------------------------
 
@@ -306,6 +361,147 @@ class StagingPower:
         print(f'set {key} on web and worker')
         return 0
 
+    # -- logs and one-off jobs (plan 01-14) --------------------------------------------------
+
+    def _owner_id(self, service_id: str) -> str:
+        """Return the workspace id of a service; the Render logs API needs it."""
+        body = self._render('GET', f'/services/{service_id}').json()
+        owner = body.get('ownerId') if isinstance(body, dict) else None
+        if not isinstance(owner, str) or not owner:
+            raise StagingError('Render did not report an ownerId for the service')
+        return owner
+
+    def _fetch_logs(
+        self,
+        owner_id: str,
+        resource_id: str,
+        start: datetime,
+        end: datetime,
+        limit: int,
+        *,
+        direction: str,
+        text: str | None = None,
+    ) -> list[tuple[str, str]]:
+        """Return up to `limit` (timestamp, message) pairs, oldest first, paging by time window.
+
+        `direction='backward'` keeps the newest `limit` lines; `'forward'` the oldest. Only the
+        timestamp and message of each entry are read: labels are dropped here.
+        """
+        window_start, window_end = _iso(start), _iso(end)
+        entries: list[tuple[str, str]] = []
+        for _ in range(LOG_MAX_PAGES):
+            wanted = limit - len(entries)
+            if wanted <= 0:
+                break
+            params = {
+                'ownerId': owner_id,
+                'resource': resource_id,
+                'startTime': window_start,
+                'endTime': window_end,
+                'direction': direction,
+                'limit': str(min(wanted, LOG_PAGE_LIMIT)),
+            }
+            if text:
+                params['text'] = text
+            body = self._render('GET', '/logs', params=params).json()
+            if not isinstance(body, dict):
+                break
+            for item in body.get('logs') or []:
+                if not isinstance(item, dict):
+                    continue
+                timestamp, message = item.get('timestamp'), item.get('message')
+                if isinstance(timestamp, str) and isinstance(message, str):
+                    entries.append((timestamp, message.rstrip('\n')))
+            next_start, next_end = body.get('nextStartTime'), body.get('nextEndTime')
+            if body.get('hasMore') is not True:
+                break
+            if not isinstance(next_start, str) or not isinstance(next_end, str):
+                break
+            window_start, window_end = next_start, next_end
+        kept = entries[:limit]
+        if direction == 'backward':
+            kept.reverse()
+        return kept
+
+    def logs(self, minutes: int, service: str, limit: int, text: str | None) -> int:
+        """Print the newest `limit` log lines of the web or worker service in a recent window."""
+        service_id = self._config.web_id if service == 'web' else self._config.worker_id
+        owner_id = self._owner_id(service_id)
+        end = self._utcnow()
+        lines = self._fetch_logs(
+            owner_id,
+            service_id,
+            end - timedelta(minutes=minutes),
+            end,
+            limit,
+            direction='backward',
+            text=text,
+        )
+        for timestamp, message in lines:
+            print(f'{timestamp} {message}')
+        return 0
+
+    def run_job(self, command: str, timeout: int = DEFAULT_JOB_TIMEOUT) -> int:
+        """Run `command` as a one-off job on the web service, wait, print its logs.
+
+        Returns 0 only when the job's final status is `succeeded`. The command is never printed
+        and a job still running at the timeout is left running (it may be mid-call to PayPal).
+        """
+        service_id = self._config.web_id
+        owner_id = self._owner_id(service_id)  # first, so a failure here runs nothing
+        created = self._render(
+            'POST', f'/services/{service_id}/jobs', body={'startCommand': command}
+        ).json()
+        job_id = created.get('id') if isinstance(created, dict) else None
+        if not isinstance(job_id, str) or not job_id:
+            raise StagingError('Render did not return a job id')
+        print(f'job {job_id} created on the web service; waiting')
+        created_at = _parse_time(created.get('createdAt')) or self._utcnow()
+
+        deadline = self._monotonic() + timeout
+        status = 'pending'
+        finished_at: datetime | None = None
+        while True:
+            job = self._render('GET', f'/services/{service_id}/jobs/{job_id}').json()
+            if isinstance(job, dict):
+                if isinstance(job.get('status'), str):
+                    status = job['status']
+                finished_at = _parse_time(job.get('finishedAt')) or finished_at
+            if status in JOB_TERMINAL_STATUSES or self._monotonic() >= deadline:
+                break
+            self._sleep(POLL_SECONDS)
+
+        finished = status in JOB_TERMINAL_STATUSES
+        print(f'job {job_id}: {status}')
+        if not finished:
+            print(
+                f'error: job {job_id} was still {status} after {timeout} seconds; it was not '
+                'cancelled (cancel it in the Render dashboard if it must stop)',
+                file=sys.stderr,
+            )
+        end = (finished_at or self._utcnow()) + JOB_LOG_PAD
+        try:
+            lines: list[tuple[str, str]] = []
+            for attempt in range(JOB_LOG_ATTEMPTS):
+                if finished and attempt == 0:
+                    self._sleep(POLL_SECONDS)  # log ingestion trails the job's exit
+                lines = self._fetch_logs(
+                    owner_id,
+                    job_id,
+                    created_at - JOB_LOG_PAD,
+                    end,
+                    JOB_LOG_LIMIT,
+                    direction='forward',
+                )
+                if lines or not finished:
+                    break
+                self._sleep(POLL_SECONDS)
+            for timestamp, message in lines:
+                print(f'{timestamp} {message}')
+        except StagingError as error:
+            print(f'warning: could not read the job logs: {error}', file=sys.stderr)
+        return 0 if status == 'succeeded' else 1
+
     def _smoke(self, *extra: str) -> subprocess.CompletedProcess[str]:
         """Run the persistence smoke script against staging, relaying its diagnostics."""
         argv = [sys.executable, str(SMOKE_SCRIPT), self._config.base_url, *extra]
@@ -361,6 +557,14 @@ def build_parser() -> argparse.ArgumentParser:
     set_env = commands.add_parser('set-env', help='set one env var on both web and worker')
     set_env.add_argument('key', help='variable name, e.g. PAYPAL_LOGIN_REDIRECT_URI')
     set_env.add_argument('value', help='variable value (sent to Render, never printed)')
+    logs = commands.add_parser('logs', help='print recent log lines of the web or worker service')
+    logs.add_argument('--minutes', type=_positive_int, default=DEFAULT_LOG_MINUTES)
+    logs.add_argument('--service', choices=('web', 'worker'), default='web')
+    logs.add_argument('--limit', type=_positive_int, default=DEFAULT_LOG_LIMIT)
+    logs.add_argument('--text', help='only lines containing this text (Render allows * and /re/)')
+    job = commands.add_parser('run-job', help='run one command as a one-off job on the web service')
+    job.add_argument('job_command', metavar='COMMAND', help='the start command to run')
+    job.add_argument('--timeout', type=_positive_int, default=DEFAULT_JOB_TIMEOUT, help='seconds')
     return parser
 
 
@@ -371,6 +575,7 @@ def main(
     runner: Runner | None = None,
     sleep: Callable[[float], None] | None = None,
     monotonic: Callable[[], float] | None = None,
+    utcnow: Callable[[], datetime] | None = None,
 ) -> int:
     """Run one subcommand; return 0 on success, 1 on a failed step and 2 on missing settings."""
     args = build_parser().parse_args(list(argv))
@@ -393,6 +598,7 @@ def main(
             repo=repo,
             sleep=sleep or time.sleep,
             monotonic=monotonic or time.monotonic,
+            utcnow=utcnow or (lambda: datetime.now(UTC)),
         )
         try:
             if args.command == 'status':
@@ -405,6 +611,10 @@ def main(
                 return power.env_keys()
             if args.command == 'set-env':
                 return power.set_env(args.key, args.value)
+            if args.command == 'logs':
+                return power.logs(args.minutes, args.service, args.limit, args.text)
+            if args.command == 'run-job':
+                return power.run_job(args.job_command, args.timeout)
             return power.restart_proof(args.timeout)
         except StagingError as error:
             print(f'error: {error}', file=sys.stderr)
