@@ -25,10 +25,12 @@ from trippilot.payments.vault_flow import (
     start_setup,
 )
 from trippilot.payments.vault_store import VaultError, VaultStore, parse_vault_keys
+from trippilot.payments.webhooks import router as webhooks_router
 
 log = logging.getLogger(__name__)
 
 router = APIRouter(prefix='/api/paypal', tags=['paypal'])
+router.include_router(webhooks_router)  # POST /api/paypal/webhooks (01-13)
 
 OWNER_KIND = 'account'
 """Members save PayPal against their account; pool buyers use 'pool_buyer' (01-14)."""
