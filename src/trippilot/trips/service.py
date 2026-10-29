@@ -31,10 +31,17 @@ MAX_MEMBERS = 12
 
 
 class MemberView(BaseModel):
-    """One member as shown on the trip page."""
+    """One member as shown on the trip page: who they are and how they look, nothing else.
+
+    Whether a member saved PayPal is never part of this view (D-08); only the signed-in member
+    can read their own status, from /api/paypal/vault/status.
+    """
 
     account_id: uuid.UUID
     display_name: str
+    nickname: str | None
+    avatar_kind: str
+    avatar_key: str | None
     role: str
 
 
@@ -143,7 +150,12 @@ async def get_trip_view(db: AsyncSession, trip_id: uuid.UUID, account: Account) 
         removed_members=await _removed_members(db, trip_id) if is_organiser else None,
         members=[
             MemberView(
-                account_id=member.account_id, display_name=who.display_name, role=member.role
+                account_id=member.account_id,
+                display_name=who.display_name,
+                nickname=who.nickname,
+                avatar_kind=who.avatar_kind,
+                avatar_key=who.avatar_key,
+                role=member.role,
             )
             for member, who in rows
         ],

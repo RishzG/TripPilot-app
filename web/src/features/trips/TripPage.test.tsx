@@ -50,8 +50,22 @@ const ORGANISER_TRIP = {
   is_organiser: true,
   joining_closed: false,
   members: [
-    { account_id: 'a1', display_name: 'Maya', role: 'organiser' },
-    { account_id: 'a2', display_name: 'Theo', role: 'member' },
+    {
+      account_id: 'a1',
+      display_name: 'Maya',
+      nickname: null,
+      avatar_kind: 'initials',
+      avatar_key: null,
+      role: 'organiser',
+    },
+    {
+      account_id: 'a2',
+      display_name: 'Theo',
+      nickname: null,
+      avatar_kind: 'initials',
+      avatar_key: null,
+      role: 'member',
+    },
   ],
   removed_members: [] as { account_id: string; display_name: string }[],
 };
@@ -144,7 +158,14 @@ describe('TripPage basics', () => {
       ...GET_ROUTES,
       '/api/trips/{trip_id}': trip({
         members: [
-          { account_id: 'a1', display_name: 'Maya', role: 'organiser' },
+          {
+            account_id: 'a1',
+            display_name: 'Maya',
+            nickname: null,
+            avatar_kind: 'initials',
+            avatar_key: null,
+            role: 'organiser',
+          },
         ],
       }),
     });
@@ -448,7 +469,14 @@ describe('TripPage membership controls', () => {
 });
 
 describe('TripPage live updates', () => {
-  const SAM = { account_id: 'a3', display_name: 'Sam', role: 'member' };
+  const SAM = {
+    account_id: 'a3',
+    display_name: 'Sam',
+    nickname: null,
+    avatar_kind: 'initials',
+    avatar_key: null,
+    role: 'member',
+  };
 
   beforeEach(() => {
     get.mockReset();

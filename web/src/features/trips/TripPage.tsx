@@ -400,7 +400,14 @@ function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
           ...current,
           members: [
             ...current.members,
-            { account_id, display_name: back.display_name, role: 'member' },
+            {
+              account_id,
+              display_name: back.display_name,
+              nickname: null,
+              avatar_kind: 'initials',
+              avatar_key: null,
+              role: 'member',
+            },
           ],
           removed_members: (current.removed_members ?? []).filter(
             (m) => m.account_id !== account_id,

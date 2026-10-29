@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 import uuid
-from typing import Annotated
+from typing import Annotated, Literal, Self
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from fastapi.responses import RedirectResponse
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field, StringConstraints, model_validator
 
+from trippilot.auth.avatars import ILLUSTRATED_AVATAR_KEYS
 from trippilot.auth.deps import AppSettings, CurrentAccount, CurrentSession, DbSession
 from trippilot.auth.models import Account
 from trippilot.auth.paypal_login import (
@@ -65,6 +66,63 @@ def me_response(account: Account, *, is_persona: bool) -> MeResponse:
 async def me(account: CurrentAccount, session: CurrentSession) -> MeResponse:
     """Return the account behind the session cookie (401 when there is none)."""
     return me_response(account, is_persona=session.is_persona)
+
+
+NICKNAME_MAX_LENGTH = 40
+AvatarKind = Literal['initials', 'illustrated']
+"""The two ways an account can look (the `accounts.avatar_kind` check constraint)."""
+
+
+class ProfileUpdate(BaseModel):
+    """Body of PATCH /api/me: a new nickname and/or a new avatar (D-09, D-45).
+
+    The nickname is trimmed and must be 1..40 characters. `avatar_kind` 'illustrated' needs a key
+    from `ILLUSTRATED_AVATAR_KEYS`; 'initials' clears the key. A key without a kind, a body that
+    changes nothing and any other field are refused with 422.
+    """
+
+    model_config = ConfigDict(extra='forbid')
+
+    nickname: (
+        Annotated[
+            str,
+            StringConstraints(strip_whitespace=True, min_length=1, max_length=NICKNAME_MAX_LENGTH),
+        ]
+        | None
+    ) = None
+    avatar_kind: AvatarKind | None = None
+    avatar_key: str | None = Field(default=None, max_length=32)
+
+    @model_validator(mode='after')
+    def _check_combination(self) -> Self:
+        """Refuse empty bodies, a key without a kind and an illustrated avatar outside the set."""
+        if self.nickname is None and self.avatar_kind is None and self.avatar_key is None:
+            raise ValueError('Nothing to change')
+        if self.avatar_kind is None and self.avatar_key is not None:
+            raise ValueError('avatar_key needs avatar_kind')
+        if self.avatar_kind == 'illustrated' and self.avatar_key not in ILLUSTRATED_AVATAR_KEYS:
+            raise ValueError('Unknown avatar')
+        return self
+
+
+@router.patch('/api/me')
+async def update_me(
+    body: ProfileUpdate, account: CurrentAccount, session: CurrentSession, db: DbSession
+) -> MeResponse:
+    """Change the signed-in member's nickname and/or avatar; nothing else is editable here.
+
+    A demo persona is one shared account that every judge signs in as, so its profile is fixed
+    (403); otherwise one visitor's nickname would show up in everyone else's demo.
+    """
+    if session.is_persona or account.kind == 'persona':
+        raise HTTPException(status.HTTP_403_FORBIDDEN, 'Demo personas cannot change their profile')
+    if body.nickname is not None:
+        account.nickname = body.nickname
+    if body.avatar_kind is not None:
+        account.avatar_kind = body.avatar_kind
+        account.avatar_key = body.avatar_key if body.avatar_kind == 'illustrated' else None
+    await db.commit()
+    return me_response(account, is_persona=False)
 
 
 @router.post('/api/auth/signout', status_code=status.HTTP_204_NO_CONTENT)
