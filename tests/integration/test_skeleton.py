@@ -157,6 +157,9 @@ def test_seam_routers_have_their_prefixes_and_only_planned_routes(make_app: Make
         '/api/paypal/vault/status',
         '/api/paypal/vault',
         '/api/paypal/webhooks',
+        '/api/paypal/pool/buyers',  # plan 01-14: admin-only pool enrolment
+        '/api/paypal/pool/{slug}/setup-token',
+        '/api/paypal/pool/{slug}/payment-token',
     }
     assert {path for path in paths if path.startswith('/api/admin')} == {
         '/api/admin/sandbox-checks'
