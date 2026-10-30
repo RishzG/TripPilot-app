@@ -14,8 +14,10 @@ from trippilot.admin import router as admin_router
 from trippilot.auth import router as auth_router
 from trippilot.auth.csrf import OriginCheckMiddleware, allowed_origins
 from trippilot.db.engine import configure_event_loop_policy
+from trippilot.db.startup import wait_for_database
 from trippilot.demo import router as demo_router
 from trippilot.jobs.app import app as jobs_app
+from trippilot.jobs.app import libpq_conninfo
 from trippilot.log_config import configure_logging
 from trippilot.payments import router as payments_router
 from trippilot.realtime import router as realtime_router
@@ -51,9 +53,11 @@ SECURITY_HEADERS = {
 async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     """Run the app's background resources: the job queue handle and the LISTEN bridge.
 
-    The procrastinate app is opened so web code can defer jobs. One task per process holds the
-    dedicated LISTEN connection and feeds `app.state.trip_hub`; it is stopped on shutdown.
+    The procrastinate app is opened so web code can defer jobs, after waiting for a database that
+    is still starting (a new or just-resumed Postgres). One task per process holds the dedicated
+    LISTEN connection and feeds `app.state.trip_hub`; it is stopped on shutdown.
     """
+    await wait_for_database(libpq_conninfo(app.state.settings.database_url))
     stop = asyncio.Event()
     listener = asyncio.create_task(
         run_listener(listener_dsn(app.state.settings.database_url), app.state.trip_hub, stop),
