@@ -35,8 +35,8 @@ restart).
 ## Staging power (UD-5)
 
 Staging (web, worker and Postgres, all paid plans) is billed from the one-time $50 Render hackathon
-credit, so it runs only while someone needs it and is suspended in between. Production is never
-suspended.
+credit, so it runs only while someone needs it and is suspended in between. Production is suspended
+between uses only until Nov 5 (see "Production power" below).
 
 **Who:** the Track B (platform) teammate owns staging power and checks at the end of each day that
 staging is suspended. Any teammate may resume staging for staging work and must suspend it at the
@@ -44,7 +44,8 @@ end of that work session.
 
 **Commands.** Put `RENDER_API_KEY`, `STAGING_BASE_URL`, `STAGING_WEB_SERVICE_ID`,
 `STAGING_WORKER_SERVICE_ID` and `STAGING_DB_ID` in the git-ignored `.env.staging` at the repo root
-(never commit it, never make the key a GitHub secret). The script reads that file itself; variables
+(never commit it; the only GitHub copy of the key is the `production-power` environment secret,
+which staging does not use). The script reads that file itself; variables
 already set in the shell win, and `STAGING_ENV_FILE` points it at another file. Then:
 
 ```bash
@@ -116,9 +117,43 @@ failure.
 
 Production is `trippilot-production-web`, `trippilot-production-worker` and
 `trippilot-production-db`, created from `render.production.yaml` (a second Blueprint, Blueprint Path
-`render.production.yaml`, **Auto Sync set to No** right after creation). It is never suspended: it
-stays up through Dec 21 (UD-5). It has its own PayPal sandbox app, database, webhook id, `VAULT_KEYS`
-and `INVITE_SECRET`; none of them are shared with staging (UD-1). `DEMO_MODE` is on (D-52).
+`render.production.yaml`, **Auto Sync set to No** right after creation). It has its own PayPal
+sandbox app, database, webhook id, `VAULT_KEYS` and `INVITE_SECRET`; none of them are shared with
+staging (UD-1). `DEMO_MODE` is on (D-52).
+
+**Production power (UD-5, changed 2026-10-30).** Until **Nov 5** production is suspended between uses,
+like staging, to save the Render credit (about $0.67 a day). From Nov 5 it stays up through Dec 21
+for the hosted checkpoint, the demo video and judging, and the power script refuses to suspend it
+(only a local `--force` overrides that, for an emergency). Suspending keeps the database, so enrolled
+pool buyers and their vault tokens survive.
+
+Any teammate can turn it on or off from GitHub, without a Render account: Actions, then
+`production-power`, then Run workflow with `status`, `resume` or `suspend`, or
+
+```bash
+gh workflow run production-power.yml --repo RishzG/TripPilot-app --ref main -f action=resume
+```
+
+`resume` turns Postgres, web and worker on with the image production last ran and waits for
+`/api/health`; it never deploys. **Whoever resumes production suspends it when done** (until Nov 5).
+Resume before promoting: `promote` waits for health and fails on a suspended service. The workflow
+runs in the GitHub Environment `production-power` (protected branches only, no reviewer), which
+holds the owner's Render API key as the secret `RENDER_API_KEY` and the resource ids as the
+environment variables `PRODUCTION_WEB_SERVICE_ID`, `PRODUCTION_WORKER_SERVICE_ID` and
+`PRODUCTION_DB_ID`. Render Hobby has no team members, so this is the only way teammates can power
+production; the key is account-wide, so the environment is limited to `main` and the key reaches
+only the step that runs the script. The owner can run the same commands locally:
+
+```bash
+uv run python scripts/ops/staging_power.py --target production status
+uv run python scripts/ops/staging_power.py --target production resume
+uv run python scripts/ops/staging_power.py --target production suspend
+```
+
+which read `RENDER_API_KEY`, `PRODUCTION_BASE_URL`, `PRODUCTION_WEB_SERVICE_ID`,
+`PRODUCTION_WORKER_SERVICE_ID` and `PRODUCTION_DB_ID` from the git-ignored `.env.production`
+(another path with `PRODUCTION_ENV_FILE`). `env-keys`, `set-env`, `logs`, `run-job` and
+`restart-proof` take `--target production` too.
 
 The Blueprint pins both services to `ghcr.io/rishzg/trippilot-app:<40-character sha>`, the creation
 baseline that already ran on staging. It never names `:main` or another moving tag. After creation

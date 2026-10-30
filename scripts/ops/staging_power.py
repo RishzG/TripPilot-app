@@ -1,13 +1,18 @@
-"""Staging power tool (01-07, UD-5): suspend, resume and prove restarts of the staging stack.
+"""Render power tool (01-07, 01-17, UD-5): suspend, resume and prove restarts of a hosted stack.
 
-Staging (Render web, worker and Postgres) is paid from the one-time hackathon credit, so it runs
-only while someone needs it. This script drives it through the Render API:
+Staging and production (Render web, worker and Postgres) are paid from the one-time hackathon
+credit, so each runs only while someone needs it. This script drives them through the Render API;
+`--target staging` (the default) or `--target production` picks the stack:
 
-    status         print web, worker and database state and whether staging is active
-    resume         resume Postgres, web, worker; wait for /api/health; open the deploy gate
-                   (repo variable STAGING_ACTIVE=true) and dispatch `release` so the current
-                   main sha is deployed
-    suspend        close the deploy gate first, then suspend worker, web and Postgres
+    status         print web, worker and database state and whether the stack is active
+    resume         resume Postgres, web, worker; wait for /api/health. Staging then opens its
+                   deploy gate (repo variable STAGING_ACTIVE=true) and dispatches `release` so the
+                   current main sha is deployed; production keeps the image it last ran (only the
+                   `promote` workflow changes production's image)
+    suspend        staging: close the deploy gate first, then suspend worker, web and Postgres.
+                   production: suspend worker, web and Postgres, refused from
+                   PRODUCTION_ALWAYS_ON_FROM (Nov 5) unless --force, because from then on judges
+                   and the demo need it up
     restart-proof  create a smoke trip, restart web and worker, wait for a new process start
                    time and a fresh worker heartbeat, then read the trip back
     env-keys       print only the NAMES of the environment variables set on web and worker
@@ -18,11 +23,14 @@ only while someone needs it. This script drives it through the Render API:
 
 Configuration: RENDER_API_KEY, STAGING_BASE_URL, STAGING_WEB_SERVICE_ID, STAGING_WORKER_SERVICE_ID
 and STAGING_DB_ID, read from the git-ignored .env.staging at the repo root (another path with
-STAGING_ENV_FILE); variables already set in the environment win over the file, so sourcing the
-file first still works. Every `gh` call names its repository with `--repo` (module constant
-`GH_REPO_DEFAULT`, overridable with the GH_REPO environment variable), because this checkout's
-default `gh` repository is the wrong upstream. The Render API key goes only into the Render
-`Authorization` header: it is never printed, logged, passed to a subprocess or sent to staging.
+STAGING_ENV_FILE); for `--target production` the same names with the PRODUCTION_ prefix, read from
+.env.production (another path with PRODUCTION_ENV_FILE). Variables already set in the environment
+win over the file, so sourcing the file first still works, and the `production-power` GitHub
+workflow passes them as environment variables with no file at all. Every `gh` call names its
+repository with `--repo` (module constant `GH_REPO_DEFAULT`, overridable with the GH_REPO
+environment variable), because this checkout's default `gh` repository is the wrong upstream. The
+Render API key goes only into the Render `Authorization` header: it is never printed, logged,
+passed to a subprocess or sent to the app.
 
 Render endpoints used (api-docs.render.com): `GET /v1/services/{id}`, `GET /v1/postgres/{id}`,
 `POST /v1/services/{id}/suspend|resume|restart`, `POST /v1/postgres/{id}/suspend|resume`,
@@ -84,14 +92,28 @@ JOB_LOG_PAD = timedelta(seconds=60)
 JOB_TERMINAL_STATUSES = frozenset({'succeeded', 'failed', 'canceled'})
 SUBPROCESS_TIMEOUT_SECONDS = 180.0
 SMOKE_SCRIPT = Path(__file__).resolve().parents[1] / 'smoke' / 'hosted_persistence.py'
-ENV_FILE_DEFAULT = Path(__file__).resolve().parents[2] / '.env.staging'
-REQUIRED_ENV = (
-    'RENDER_API_KEY',
-    'STAGING_BASE_URL',
-    'STAGING_WEB_SERVICE_ID',
-    'STAGING_WORKER_SERVICE_ID',
-    'STAGING_DB_ID',
-)
+REPO_ROOT = Path(__file__).resolve().parents[2]
+TARGETS = ('staging', 'production')
+ENV_FILE_DEFAULTS = {
+    'staging': REPO_ROOT / '.env.staging',
+    'production': REPO_ROOT / '.env.production',
+}
+ENV_FILE_OVERRIDES = {'staging': 'STAGING_ENV_FILE', 'production': 'PRODUCTION_ENV_FILE'}
+# From this moment production stays up through Dec 21 (hosted checkpoint, demo video, judging).
+PRODUCTION_ALWAYS_ON_FROM = datetime(2026, 11, 5, tzinfo=UTC)
+
+
+def required_env(target: str) -> tuple[str, ...]:
+    """Return the variable names a target needs, e.g. PRODUCTION_DB_ID for production."""
+    prefix = target.upper()
+    return (
+        'RENDER_API_KEY',
+        f'{prefix}_BASE_URL',
+        f'{prefix}_WEB_SERVICE_ID',
+        f'{prefix}_WORKER_SERVICE_ID',
+        f'{prefix}_DB_ID',
+    )
+
 
 Runner = Callable[[Sequence[str]], subprocess.CompletedProcess[str]]
 
@@ -124,18 +146,19 @@ def _positive_int(raw: str) -> int:
 
 
 class StagingError(Exception):
-    """A staging step failed; the message names the step and a status, never a secret."""
+    """A power step failed; the message names the step and a status, never a secret."""
 
 
 @dataclass(frozen=True)
 class Config:
-    """Where staging lives and how to talk to Render about it."""
+    """Where one stack (staging or production) lives and how to talk to Render about it."""
 
     api_key: str = field(repr=False)
     base_url: str
     web_id: str
     worker_id: str
     db_id: str
+    target: str = 'staging'
 
 
 ANSI_ESCAPE = re.compile(r'\x1b\[[0-9;]*[A-Za-z]')
@@ -170,17 +193,19 @@ def load_env_file(path: Path) -> dict[str, str]:
     return values
 
 
-def load_config(env: Mapping[str, str]) -> Config:
-    """Build a `Config` from the environment; raise `StagingError` naming missing variables."""
-    missing = [name for name in REQUIRED_ENV if not env.get(name)]
+def load_config(env: Mapping[str, str], target: str = 'staging') -> Config:
+    """Build a target's `Config` from the environment; raise `StagingError` naming missing ones."""
+    missing = [name for name in required_env(target) if not env.get(name)]
     if missing:
         raise StagingError('missing environment variables: ' + ', '.join(missing))
+    prefix = target.upper()
     return Config(
         api_key=env['RENDER_API_KEY'],
-        base_url=env['STAGING_BASE_URL'].rstrip('/'),
-        web_id=env['STAGING_WEB_SERVICE_ID'],
-        worker_id=env['STAGING_WORKER_SERVICE_ID'],
-        db_id=env['STAGING_DB_ID'],
+        base_url=env[f'{prefix}_BASE_URL'].rstrip('/'),
+        web_id=env[f'{prefix}_WEB_SERVICE_ID'],
+        worker_id=env[f'{prefix}_WORKER_SERVICE_ID'],
+        db_id=env[f'{prefix}_DB_ID'],
+        target=target,
     )
 
 
@@ -201,7 +226,7 @@ def run_subprocess(argv: Sequence[str]) -> subprocess.CompletedProcess[str]:
 
 
 class StagingPower:
-    """The staging suspend/resume/restart operations, with injectable HTTP, processes and time."""
+    """The suspend/resume/restart operations of one stack, with injectable HTTP, processes, time."""
 
     def __init__(
         self,
@@ -265,8 +290,12 @@ class StagingPower:
                 f'gh {" ".join(args[:2])} failed (exit {completed.returncode}){suffix}'
             )
 
+    @property
+    def _production(self) -> bool:
+        return self._config.target == 'production'
+
     def _health(self) -> dict[str, object] | None:
-        """Read staging /api/health (no credentials); None when it is not a 200 JSON object."""
+        """Read the stack's /api/health (no credentials); None when it is not a 200 JSON object."""
         try:
             response = self._client.get(f'{self._config.base_url}{HEALTH_PATH}')
             body = response.json() if response.status_code == 200 else None
@@ -290,7 +319,7 @@ class StagingPower:
     # -- commands ----------------------------------------------------------------------------
 
     def status(self) -> int:
-        """Print each resource's state; staging is active only if none of the three is suspended."""
+        """Print each resource's state; the stack is active only if none of the three is off."""
         resources = (
             ('web', f'/services/{self._config.web_id}'),
             ('worker', f'/services/{self._config.worker_id}'),
@@ -302,28 +331,55 @@ class StagingPower:
             running = isinstance(body, dict) and body.get('suspended') == 'not_suspended'
             active = active and running
             print(f'{label}: {"active" if running else "suspended"}')
-        print('staging: active' if active else 'staging: not active')
+        name = self._config.target
+        print(f'{name}: active' if active else f'{name}: not active')
         return 0
 
     def resume(self, timeout: int = DEFAULT_RESUME_TIMEOUT) -> int:
-        """Resume Postgres, web and worker, wait for health, then open the deploy gate."""
+        """Resume Postgres, web and worker and wait for health; staging then opens its gate."""
+        name = self._config.target
         self._render('POST', f'/postgres/{self._config.db_id}/resume')
         self._render('POST', f'/services/{self._config.web_id}/resume')
         self._render('POST', f'/services/{self._config.worker_id}/resume')
         print('resume requested for database, web and worker; waiting for /api/health')
-        self._wait_for(lambda body: body.get('db') == 'ok', timeout, 'staging becoming healthy')
+        self._wait_for(lambda body: body.get('db') == 'ok', timeout, f'{name} becoming healthy')
+        if self._production:
+            sha = self._health_sha()
+            print(f'production is up on the image it last ran ({sha}); suspend it when done')
+            return 0
         self._gh('variable', 'set', 'STAGING_ACTIVE', '--body', 'true')
         self._gh('workflow', 'run', 'release.yml', '--ref', 'main')
         print('staging is up; STAGING_ACTIVE=true and the release workflow dispatched for main')
         return 0
 
-    def suspend(self) -> int:
-        """Close the deploy gate, then suspend worker, web and Postgres."""
-        self._gh('variable', 'set', 'STAGING_ACTIVE', '--body', 'false')
+    def _health_sha(self) -> str:
+        """Return the git sha /api/health reports, or 'unknown'."""
+        body = self._health()
+        sha = body.get('git_sha') if body else None
+        return sha if isinstance(sha, str) and sha else 'unknown'
+
+    def suspend(self, *, force: bool = False) -> int:
+        """Suspend worker, web and Postgres; staging closes its deploy gate first.
+
+        Production refuses from PRODUCTION_ALWAYS_ON_FROM unless `force`, so nobody turns the
+        judge-facing stack off by habit once the demo period starts.
+        """
+        if self._production:
+            if self._utcnow() >= PRODUCTION_ALWAYS_ON_FROM and not force:
+                raise StagingError(
+                    f'production stays up from {PRODUCTION_ALWAYS_ON_FROM:%Y-%m-%d} through '
+                    'Dec 21; pass --force only to stop an emergency'
+                )
+        else:
+            self._gh('variable', 'set', 'STAGING_ACTIVE', '--body', 'false')
         self._render('POST', f'/services/{self._config.worker_id}/suspend')
         self._render('POST', f'/services/{self._config.web_id}/suspend')
         self._render('POST', f'/postgres/{self._config.db_id}/suspend')
-        print('staging suspended; STAGING_ACTIVE=false')
+        print(
+            'production suspended'
+            if self._production
+            else 'staging suspended; STAGING_ACTIVE=false'
+        )
         return 0
 
     def _service_env_keys(self, service_id: str) -> list[str]:
@@ -365,10 +421,12 @@ class StagingPower:
     def set_env(self, key: str, value: str) -> int:
         """Set one variable on web and worker; the value is sent to Render and never printed."""
         if key in PROTECTED_ENV_KEYS:
-            raise StagingError(f'{key} is never copied to the staging services')
+            raise StagingError(f'{key} is never copied to the {self._config.target} services')
         for service_id in (self._config.web_id, self._config.worker_id):
             self._render('PUT', f'/services/{service_id}/env-vars/{key}', body={'value': value})
         print(f'set {key} on web and worker')
+        if self._production:
+            print('it applies on the next deploy: promote the sha production already runs')
         return 0
 
     # -- logs and one-off jobs (plan 01-14) --------------------------------------------------
@@ -513,7 +571,7 @@ class StagingPower:
         return 0 if status == 'succeeded' else 1
 
     def _smoke(self, *extra: str) -> subprocess.CompletedProcess[str]:
-        """Run the persistence smoke script against staging, relaying its diagnostics."""
+        """Run the persistence smoke script against the stack, relaying its diagnostics."""
         argv = [sys.executable, str(SMOKE_SCRIPT), self._config.base_url, *extra]
         completed = self._runner(argv)
         if completed.stderr:
@@ -529,7 +587,9 @@ class StagingPower:
         before = self._health()
         started_before = before.get('started_at') if before else None
         if not isinstance(started_before, str):
-            raise StagingError('staging /api/health did not report started_at before the restart')
+            raise StagingError(
+                f'{self._config.target} /api/health did not report started_at before the restart'
+            )
 
         self._render('POST', f'/services/{self._config.web_id}/restart')
         self._render('POST', f'/services/{self._config.worker_id}/restart')
@@ -555,12 +615,22 @@ class StagingPower:
 
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser."""
-    parser = argparse.ArgumentParser(description='Suspend, resume and prove restarts of staging.')
+    parser = argparse.ArgumentParser(
+        description='Suspend, resume and prove restarts of staging or production.'
+    )
+    parser.add_argument('--target', choices=TARGETS, default='staging', help='which stack')
     commands = parser.add_subparsers(dest='command', required=True)
     commands.add_parser('status', help='print web, worker and database state')
-    resume = commands.add_parser('resume', help='resume staging and deploy the current main')
+    resume = commands.add_parser(
+        'resume', help='resume the stack (staging also deploys the current main)'
+    )
     resume.add_argument('--timeout', type=int, default=DEFAULT_RESUME_TIMEOUT, help='seconds')
-    commands.add_parser('suspend', help='suspend staging and close the deploy gate')
+    suspend = commands.add_parser(
+        'suspend', help='suspend the stack (staging also closes its deploy gate)'
+    )
+    suspend.add_argument(
+        '--force', action='store_true', help='production only: suspend even from Nov 5'
+    )
     proof = commands.add_parser('restart-proof', help='prove a trip survives a restart')
     proof.add_argument('--timeout', type=int, default=DEFAULT_RESTART_TIMEOUT, help='seconds')
     commands.add_parser('env-keys', help='print the names (never values) of the service env vars')
@@ -594,12 +664,13 @@ def main(
             stream.reconfigure(errors='replace')
     args = build_parser().parse_args(list(argv))
     if env is None:
-        env_file = Path(os.environ.get('STAGING_ENV_FILE') or ENV_FILE_DEFAULT)
+        override = os.environ.get(ENV_FILE_OVERRIDES[args.target])
+        env_file = Path(override) if override else ENV_FILE_DEFAULTS[args.target]
         environment: Mapping[str, str] = {**load_env_file(env_file), **os.environ}
     else:
         environment = env
     try:
-        config = load_config(environment)
+        config = load_config(environment, args.target)
     except StagingError as error:
         print(f'error: {error}', file=sys.stderr)
         return 2
@@ -620,7 +691,7 @@ def main(
             if args.command == 'resume':
                 return power.resume(args.timeout)
             if args.command == 'suspend':
-                return power.suspend()
+                return power.suspend(force=args.force)
             if args.command == 'env-keys':
                 return power.env_keys()
             if args.command == 'set-env':
