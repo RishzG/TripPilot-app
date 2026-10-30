@@ -1,0 +1,65 @@
+name: production-power
+
+# Turn production on or off, or see whether it is on (plan 01-17, UD-5). Production is suspended
+# between uses until Nov 5 to save the Render credit; from Nov 5 it stays up through Dec 21 and
+# `suspend` is refused by scripts/ops/staging_power.py (only a local `--force` overrides it).
+#
+# Any teammate runs it from the Actions tab (production-power -> Run workflow -> pick an action) or:
+#
+#   gh workflow run production-power.yml --repo RishzG/TripPilot-app --ref main -f action=resume
+#
+# `resume` turns Postgres, web and worker back on with the image production last ran and waits for
+# /api/health; it never deploys. Code reaches production only through `promote` (resume first,
+# because promote waits for health). Whoever resumes production suspends it when done, until Nov 5.
+#
+# The job is bound to the GitHub `production-power` Environment, restricted to protected branches
+# and with no required reviewer, so teammates can self-serve. It holds the Render API key as the
+# secret RENDER_API_KEY (Render Hobby has no team members, so this is the owner's key) and the
+# production resource ids as environment variables. The key reaches only the step that runs the
+# script, which sends it only to the Render API. Never add a pull_request or push trigger.
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: status, resume (turn on and wait for health) or suspend (turn off; refused from Nov 5)
+        required: true
+        type: choice
+        options:
+          - status
+          - resume
+          - suspend
+
+concurrency:
+  group: production-power
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  power:
+    name: production-power
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    environment: production-power
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - uses: astral-sh/setup-uv@v10.3.3
+        with:
+          version: 0.11.14
+
+      - name: Install dependencies
+        run: uv sync --frozen --no-dev
+
+      - name: Run the power script against production
+        env:
+          POWER_ACTION: ${{ inputs.action }}
+          RENDER_API_KEY: ${{ secrets.RENDER_API_KEY }}
+          PRODUCTION_BASE_URL: ${{ vars.PRODUCTION_BASE_URL }}
+          PRODUCTION_WEB_SERVICE_ID: ${{ vars.PRODUCTION_WEB_SERVICE_ID }}
+          PRODUCTION_WORKER_SERVICE_ID: ${{ vars.PRODUCTION_WORKER_SERVICE_ID }}
+          PRODUCTION_DB_ID: ${{ vars.PRODUCTION_DB_ID }}
+        run: uv run --no-sync python scripts/ops/staging_power.py --target production "$POWER_ACTION"

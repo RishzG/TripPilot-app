@@ -28,8 +28,8 @@
 # registers the production webhook and sets it (an env-var change needs a redeploy through promote).
 #
 # Monthly prices are Render's published list prices (render.com/pricing), the same plan ids the
-# staging Blueprint preview accepted (01-07). Production is never suspended: always on through
-# Dec 21 (UD-5), about $20.30/month in total.
+# staging Blueprint preview accepted (01-07), about $20.30/month in total while running. Production is
+# suspended between uses until Nov 5 (production-power workflow), then always on through Dec 21 (UD-5).
 
 services:
   - type: web

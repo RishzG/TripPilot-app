@@ -910,3 +910,138 @@ def test_log_messages_lose_terminal_colour_codes(sp: Any) -> None:
     raw = '\x1b[0;32m\x1b[1m==> \x1b[0m\x1b[1mYour service is live\x1b[0m'
 
     assert sp.clean_log_message(raw) == '==> Your service is live'
+
+
+# -- production target (01-17: suspended until Nov 5, then always on) ------------------------------
+
+PROD_ENV = {
+    'RENDER_API_KEY': API_KEY,
+    'PRODUCTION_BASE_URL': BASE_URL,
+    'PRODUCTION_WEB_SERVICE_ID': 'srv-web',
+    'PRODUCTION_WORKER_SERVICE_ID': 'srv-worker',
+    'PRODUCTION_DB_ID': 'dpg-db',
+}
+PROD = ['--target', 'production']
+ALWAYS_ON = datetime(2026, 11, 5, 0, 0, 0, tzinfo=UTC)
+
+
+def test_production_resume_waits_for_health_and_never_touches_the_staging_gate(
+    sp: Any, world: World_, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Production resumes on the image it last ran: no STAGING_ACTIVE, no release dispatch."""
+    w, _router = world
+    w.health_script = [503, health('A', 2.0)]
+
+    assert run_main_at(sp, w, [*PROD, 'resume'], env=PROD_ENV) == 0
+
+    assert [event for event in w.events if event[0] == 'run'] == []
+    assert w.events[:3] == [DB_RESUME, WEB_RESUME, WORKER_RESUME]
+    assert 'production is up on the image it last ran (abc123)' in capsys.readouterr().out
+
+
+def test_production_suspend_before_the_always_on_date_runs_no_gh(sp: Any, world: World_) -> None:
+    """Before Nov 5 production suspends worker, web, Postgres and leaves STAGING_ACTIVE alone."""
+    w, _router = world
+
+    assert run_main_at(sp, w, [*PROD, 'suspend'], env=PROD_ENV) == 0
+
+    assert w.events == [WORKER_SUSPEND, WEB_SUSPEND, DB_SUSPEND]
+
+
+def test_production_suspend_is_refused_from_the_always_on_date_unless_forced(
+    sp: Any, world: World_, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """From Nov 5 a plain suspend fails before any Render call; --force still works."""
+    w, _router = world
+
+    def at_always_on(argv: list[str]) -> int:
+        code: int = sp.main(
+            argv,
+            env=PROD_ENV,
+            runner=w.run,
+            sleep=w.sleep,
+            monotonic=w.monotonic,
+            utcnow=lambda: ALWAYS_ON,
+        )
+        return code
+
+    assert at_always_on([*PROD, 'suspend']) == 1
+    assert w.events == []
+    assert 'stays up from 2026-11-05' in capsys.readouterr().err
+
+    assert at_always_on([*PROD, 'suspend', '--force']) == 0
+    assert w.events == [WORKER_SUSPEND, WEB_SUSPEND, DB_SUSPEND]
+
+
+def test_staging_suspend_is_never_date_gated(sp: Any, world: World_) -> None:
+    """The Nov 5 rule is production only."""
+    w, _router = world
+
+    code = sp.main(
+        ['suspend'],
+        env=ENV,
+        runner=w.run,
+        sleep=w.sleep,
+        monotonic=w.monotonic,
+        utcnow=lambda: ALWAYS_ON,
+    )
+
+    assert code == 0
+    assert w.events == [GH_ACTIVE_FALSE, WORKER_SUSPEND, WEB_SUSPEND, DB_SUSPEND]
+
+
+def test_production_status_names_the_stack(
+    sp: Any, world: World_, capsys: pytest.CaptureFixture[str]
+) -> None:
+    w, _router = world
+
+    assert run_main_at(sp, w, [*PROD, 'status'], env=PROD_ENV) == 0
+
+    assert 'production: active' in capsys.readouterr().out
+
+
+def test_production_needs_the_production_names_not_the_staging_ones(
+    sp: Any, world: World_, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Staging variables do not satisfy the production target."""
+    w, _router = world
+
+    assert run_main_at(sp, w, [*PROD, 'status'], env=ENV) == 2
+
+    err = capsys.readouterr().err
+    assert 'PRODUCTION_BASE_URL' in err
+    assert 'PRODUCTION_DB_ID' in err
+    assert 'RENDER_API_KEY' not in err
+    assert w.events == []
+
+
+def test_production_set_env_says_a_promote_applies_it(
+    sp: Any, world: World_, capsys: pytest.CaptureFixture[str]
+) -> None:
+    w, _router = world
+
+    assert run_main_at(sp, w, [*PROD, 'set-env', 'PAYPAL_WEBHOOK_ID', 'WH-1'], env=PROD_ENV) == 0
+
+    out = capsys.readouterr().out
+    assert 'promote the sha production already runs' in out
+    assert 'WH-1' not in out
+
+
+def test_main_reads_the_production_env_file_for_the_production_target(
+    sp: Any, world: World_, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """--target production loads PRODUCTION_ENV_FILE, not the staging file."""
+    w, _router = world
+    env_file = tmp_path / 'production.env'
+    env_file.write_text(
+        '\n'.join(f'{key}={value}' for key, value in PROD_ENV.items()) + '\n', encoding='utf-8'
+    )
+    for key in (*ENV, *PROD_ENV):
+        monkeypatch.delenv(key, raising=False)
+    monkeypatch.setenv('PRODUCTION_ENV_FILE', str(env_file))
+    monkeypatch.setenv('STAGING_ENV_FILE', str(tmp_path / 'absent.env'))
+
+    code = sp.main([*PROD, 'status'], runner=w.run, sleep=w.sleep, monotonic=w.monotonic)
+
+    assert code == 0
+    assert ('http', 'GET', f'{RENDER}/postgres/dpg-db') in w.events

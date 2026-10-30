@@ -109,4 +109,5 @@ jobs:
             sleep 15
           done
           echo "production did not report $PROMOTE_SHA within 10 minutes" >&2
+          echo "if production is suspended, run the production-power workflow with action=resume, then promote again" >&2
           exit 1
