@@ -75,6 +75,17 @@ jobs:
           # The GHCR package is public, so an anonymous manifest lookup works without a login.
           docker manifest inspect "$IMAGE:$PROMOTE_SHA" > /dev/null
 
+      - name: Record the running process start time
+        # Promoting the sha production already runs (to apply an env change) would otherwise pass
+        # the health wait before Render redeploys (seen 2026-10-30), so the wait also needs a new
+        # started_at. Empty when production does not answer (first deploy, failed boot).
+        run: |
+          set -euo pipefail
+          body=$(curl -fsS --max-time 10 "${PRODUCTION_BASE_URL%/}/api/health" || true)
+          before=$(printf '%s' "$body" | python3 -c "import json, sys; print(json.load(sys.stdin).get('started_at', ''))" 2>/dev/null || true)
+          echo "BEFORE_STARTED_AT=$before" >> "$GITHUB_ENV"
+          echo "production process started at: ${before:-unknown}"
+
       - name: Deploy this image to production web and worker
         env:
           WEB_HOOK: ${{ secrets.RENDER_PRODUCTION_WEB_DEPLOY_HOOK }}
@@ -102,12 +113,13 @@ jobs:
           while [ "$SECONDS" -lt "$deadline" ]; do
             body=$(curl -fsS --max-time 10 "${PRODUCTION_BASE_URL%/}/api/health" || true)
             sha=$(printf '%s' "$body" | python3 -c "import json, sys; print(json.load(sys.stdin).get('git_sha', ''))" 2>/dev/null || true)
-            if [ "$sha" = "$PROMOTE_SHA" ]; then
-              echo "production is serving $PROMOTE_SHA"
+            started=$(printf '%s' "$body" | python3 -c "import json, sys; print(json.load(sys.stdin).get('started_at', ''))" 2>/dev/null || true)
+            if [ "$sha" = "$PROMOTE_SHA" ] && [ -n "$started" ] && [ "$started" != "${BEFORE_STARTED_AT:-}" ]; then
+              echo "production is serving $PROMOTE_SHA from a new process started at $started"
               exit 0
             fi
             sleep 15
           done
-          echo "production did not report $PROMOTE_SHA within 10 minutes" >&2
+          echo "production did not report $PROMOTE_SHA from a new process within 10 minutes" >&2
           echo "if production is suspended, run the production-power workflow with action=resume, then promote again" >&2
           exit 1

@@ -173,6 +173,8 @@ sha is 40 hex characters and an ancestor of `origin/main`, checks `docker manife
 image, posts the production web and worker deploy hooks with `imgURL=ghcr.io/rishzg/trippilot-app:<sha>`
 (environment secrets `RENDER_PRODUCTION_WEB_DEPLOY_HOOK` and `RENDER_PRODUCTION_WORKER_DEPLOY_HOOK`)
 and polls `<PRODUCTION_BASE_URL>/api/health` for up to 10 minutes until `git_sha` equals the sha
+and `started_at` differs from the process that was running before the deploy, so promoting the sha
+production already runs (to apply an env change) waits for the real redeploy
 (`PRODUCTION_BASE_URL` is a repository variable).
 
 **Rollback** is the same command with the previous sha. Check first that the previous image works

@@ -82,9 +82,12 @@ def _record(
     confirmed: list[str],
     missing: list[str],
     other_webhooks: int,
-) -> None:
-    """Write the outcome (names and ids only) to the gitignored results file."""
-    RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+) -> bool:
+    """Write the outcome (names and ids only) to the gitignored results file.
+
+    Returns False, with a warning, when the file cannot be written: inside a Render one-off job the
+    app directory is read-only, and by then the webhook already exists and its id is printed.
+    """
     result = {
         'recorded_at': datetime.now(UTC).isoformat(timespec='seconds'),
         'mode': 'sandbox',
@@ -100,7 +103,17 @@ def _record(
         'available_event_type_count': len(available),
         'other_webhooks_on_this_app': other_webhooks,
     }
-    RESULTS_FILE.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    try:
+        RESULTS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        RESULTS_FILE.write_text(json.dumps(result, indent=2) + '\n', encoding='utf-8')
+    except OSError as error:
+        print(
+            f'warning: could not write {RESULTS_FILE} ({type(error).__name__}); '
+            'the webhook id above is the record',
+            file=sys.stderr,
+        )
+        return False
+    return True
 
 
 async def _register(client: PayPalClient, url: str) -> int:
@@ -143,7 +156,7 @@ async def _register(client: PayPalClient, url: str) -> int:
         for name in unsubscribed:
             print(f'  {name}')
     others = len([hook for hook in existing if hook.id != webhook.id])
-    _record(
+    recorded = _record(
         url=url,
         webhook=webhook,
         reused=reused,
@@ -152,7 +165,8 @@ async def _register(client: PayPalClient, url: str) -> int:
         missing=missing,
         other_webhooks=others,
     )
-    print(f'recorded in {RESULTS_FILE}')
+    if recorded:
+        print(f'recorded in {RESULTS_FILE}')
     return 0
 
 

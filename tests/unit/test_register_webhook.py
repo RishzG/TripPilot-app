@@ -86,6 +86,25 @@ async def test_running_it_again_reuses_the_webhook_and_creates_nothing(
     assert results['reused_existing_webhook'] is True
 
 
+async def test_a_read_only_results_folder_only_warns_after_the_webhook_exists(
+    script: ModuleType, tmp_path: Path, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """In a Render job the app folder is read-only: the run still succeeds with the id printed."""
+    blocker = tmp_path / 'not-a-folder'
+    blocker.write_text('x', encoding='utf-8')
+    script.__dict__['RESULTS_FILE'] = blocker / 'webhook_registration.json'
+    fake = FakePayPal()
+
+    code = await _register(script, fake)
+
+    assert code == 0
+    hooks = await fake.list_webhooks()
+    captured = capsys.readouterr()
+    assert f'webhook_id: {hooks[0].id}' in captured.out
+    assert 'recorded in' not in captured.out
+    assert 'warning: could not write' in captured.err
+
+
 async def test_a_different_url_gets_its_own_webhook(script: ModuleType) -> None:
     fake = FakePayPal()
     await fake.create_webhook(url='https://other.example.test/api/paypal/webhooks', event_types=())
