@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { render, screen } from '@testing-library/react';
+import { render, screen, waitFor } from '@testing-library/react';
 import { createMemoryRouter, RouterProvider } from 'react-router';
 import type { Mock } from 'vitest';
 import { api } from '../../lib/api';
@@ -97,6 +97,32 @@ describe('HomePage signed out', () => {
     renderHome();
     await screen.findByRole('link', { name: 'Start a trip' });
     expect(screen.queryByRole('link', { name: 'Try the demo' })).toBeNull();
+  });
+});
+
+describe('HomePage loading', () => {
+  beforeEach(() => {
+    get.mockReset();
+  });
+
+  it('shimmers a busy skeleton while My trips loads', async () => {
+    get.mockImplementation(async (path: string) =>
+      path === '/api/me'
+        ? {
+            data: ME.data,
+            error: undefined,
+            response: { ok: true, status: 200 } as Response,
+          }
+        : new Promise(() => undefined),
+    );
+    renderHome();
+    await waitFor(() =>
+      expect(document.querySelector('[aria-busy="true"]')).not.toBeNull(),
+    );
+    expect(
+      document.querySelectorAll('[data-slot="skeleton"]').length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByRole('heading', { name: 'My trips' })).toBeNull();
   });
 });
 

@@ -1,5 +1,10 @@
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Link, Navigate, useParams } from 'react-router';
+import { ErrorRetry } from '@/components/ErrorRetry';
+import { SkeletonList } from '@/components/SkeletonList';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
 import { ApiError, api, unwrap } from '../../lib/api';
 import { useMe } from '../auth/useMe';
 import { BAD_LINK, Notice, REFUSALS } from './joinNotices';
@@ -7,15 +12,13 @@ import { BAD_LINK, Notice, REFUSALS } from './joinNotices';
 const SUBMIT_FAILED_MESSAGE =
   "Couldn't save that. Nothing was changed, so try again.";
 
-const BUTTON_CLASS =
-  'inline-flex min-h-11 w-full items-center justify-center rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground disabled:opacity-50';
-const QUIET_CLASS =
-  'inline-flex min-h-11 w-full items-center justify-center rounded-lg px-4 text-base font-semibold';
+const PAGE = 'mx-auto w-full max-w-md p-4 pt-6';
 
+/** The card skeleton while the invite resolves (UI-SPEC "E4 Join confirm card", loading). */
 function Loading() {
   return (
-    <div aria-busy="true" className="mx-auto w-full max-w-md p-4 pt-6">
-      <p className="text-muted-foreground">Loading the invite</p>
+    <div className={PAGE}>
+      <SkeletonList withTitle rows={2} />
     </div>
   );
 }
@@ -71,26 +74,16 @@ export function JoinPage() {
       return <Notice {...BAD_LINK} />;
     }
     return (
-      <div className="mx-auto w-full max-w-md p-4 pt-6">
-        <h1 className="text-xl font-semibold leading-[1.2]">
-          We couldn't load that.
-        </h1>
-        <p className="mt-2 text-muted-foreground">
-          Check your connection and try again.
-        </p>
-        <button
-          type="button"
-          onClick={() => {
+      <div className={PAGE}>
+        <ErrorRetry
+          onRetry={() => {
             if (me.isError) {
               void me.refetch();
             } else {
               void preview.refetch();
             }
           }}
-          className="mt-4 min-h-11 rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground"
-        >
-          Retry loading
-        </button>
+        />
       </div>
     );
   }
@@ -109,19 +102,19 @@ export function JoinPage() {
     const demoAvailable = demo.isSuccess && demo.data.length > 0;
     const loginHref = `/api/auth/paypal/start?invite=${encodeURIComponent(token)}`;
     return (
-      <div className="mx-auto w-full max-w-md p-4 pt-6">
-        <h1 className="text-balance break-words text-[1.75rem] font-semibold leading-[1.2]">
+      <div className={PAGE}>
+        <h1 className="text-balance break-words text-display font-semibold leading-[1.2]">
           {invite.organiser_name} invited you to {invite.trip_name}
         </h1>
         <p className="mt-2 text-base">Sign in to join and see who's in.</p>
         <div className="mt-6 flex flex-col gap-2">
-          <a href={loginHref} className={BUTTON_CLASS}>
-            Sign in to join
-          </a>
+          <Button asChild className="w-full">
+            <a href={loginHref}>Sign in to join</a>
+          </Button>
           {demoAvailable && (
-            <Link to={`/demo?next=${next}`} className={QUIET_CLASS}>
-              Join as a demo friend
-            </Link>
+            <Button asChild variant="ghost" className="w-full">
+              <Link to={`/demo?next=${next}`}>Join as a demo friend</Link>
+            </Button>
           )}
         </div>
       </div>
@@ -129,35 +122,40 @@ export function JoinPage() {
   }
 
   return (
-    <div className="mx-auto w-full max-w-md p-4 pt-6">
-      <div className="rounded-xl border border-border p-6">
-        <h1 className="text-balance break-words text-xl font-semibold leading-[1.2]">
-          Join {invite.trip_name}?
-        </h1>
-        <p className="mt-2 text-base">
-          {invite.organiser_name} is organising. In so far:{' '}
-          {invite.members.join(', ')}.
-        </p>
-        {join.isError && (
-          <p role="alert" className="mt-4 text-sm text-destructive">
-            {SUBMIT_FAILED_MESSAGE}
+    <div className={PAGE}>
+      <Card>
+        <CardHeader>
+          <h1 className="text-balance break-words text-xl font-semibold leading-[1.2]">
+            Join {invite.trip_name}?
+          </h1>
+        </CardHeader>
+        <CardContent className="flex flex-col gap-4">
+          <p className="text-base">
+            {invite.organiser_name} is organising. In so far:{' '}
+            {invite.members.join(', ')}.
           </p>
-        )}
-        <div className="mt-6 flex flex-col gap-2">
-          <button
-            type="button"
-            disabled={join.isPending}
-            aria-busy={join.isPending}
-            onClick={() => join.mutate()}
-            className={BUTTON_CLASS}
-          >
-            Join trip
-          </button>
-          <Link to="/" className={QUIET_CLASS}>
-            Decline invite
-          </Link>
-        </div>
-      </div>
+          {join.isError && (
+            <p role="alert" className="text-sm text-destructive">
+              {SUBMIT_FAILED_MESSAGE}
+            </p>
+          )}
+          <div className="flex flex-col gap-2">
+            <Button
+              type="button"
+              disabled={join.isPending}
+              aria-busy={join.isPending}
+              onClick={() => join.mutate()}
+              className="w-full"
+            >
+              {join.isPending && <Spinner />}
+              Join trip
+            </Button>
+            <Button asChild variant="ghost" className="w-full">
+              <Link to="/">Decline invite</Link>
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }

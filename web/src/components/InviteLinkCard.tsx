@@ -73,11 +73,15 @@ export function InviteLinkCard({
   const [copyFailed, setCopyFailed] = useState(false);
   const [confirmingReset, setConfirmingReset] = useState(false);
   // The field cross-fades when the link is replaced by a reset, never for the first value.
-  const [shownUrl, setShownUrl] = useState({ url, swapped: false });
+  // `swaps` keys the field so a reset replays the fade; the first value arriving keeps the same
+  // element (it is not a swap), so nothing holding the field loses it.
+  const [shownUrl, setShownUrl] = useState({ url, swapped: false, swaps: 0 });
   if (url !== shownUrl.url) {
+    const swapped = shownUrl.url !== undefined && url !== undefined;
     setShownUrl({
       url,
-      swapped: shownUrl.url !== undefined && url !== undefined,
+      swapped,
+      swaps: swapped ? shownUrl.swaps + 1 : shownUrl.swaps,
     });
   }
 
@@ -145,7 +149,7 @@ export function InviteLinkCard({
                 className="size-5 shrink-0 text-muted-foreground"
               />
               <Input
-                key={shownUrl.url}
+                key={shownUrl.swaps}
                 ref={field}
                 type="text"
                 readOnly
