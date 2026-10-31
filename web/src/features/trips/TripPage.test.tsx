@@ -166,6 +166,16 @@ describe('TripPage basics', () => {
     expect(await screen.findByText('2 of 12 in')).toBeTruthy();
   });
 
+  it('shimmers a busy skeleton while the trip loads', () => {
+    get.mockImplementation(() => new Promise(() => undefined));
+    renderTrip();
+    expect(document.querySelector('[aria-busy="true"]')).not.toBeNull();
+    expect(
+      document.querySelectorAll('[data-slot="skeleton"]').length,
+    ).toBeGreaterThan(0);
+    expect(screen.queryByRole('heading', { level: 1 })).toBeNull();
+  });
+
   it('offers a retry when the trip cannot be loaded', async () => {
     serve(get, { '/api/trips/{trip_id}': { status: 404, data: {} } });
     renderTrip();

@@ -1,9 +1,18 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Check, Copy, X } from 'lucide-react';
+import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
-import { toast } from 'sonner';
-import { Avatar, shownName } from '../../components/Avatar';
+import { Avatar, shownName } from '@/components/Avatar';
+import { EmptyState } from '@/components/EmptyState';
+import { ErrorRetry } from '@/components/ErrorRetry';
+import { InviteLinkCard } from '@/components/InviteLinkCard';
+import { SkeletonList } from '@/components/SkeletonList';
+import { Alert, AlertAction } from '@/components/ui/alert';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
+import { Spinner } from '@/components/ui/spinner';
+import { cn } from '@/lib/utils';
 import { api, unwrap } from '../../lib/api';
 import type { components } from '../../lib/api-types';
 import { useMe } from '../auth/useMe';
@@ -15,18 +24,11 @@ type MemberData = components['schemas']['MemberView'];
 
 const MAX_MEMBERS = 12;
 const CONFIRM_REVERT_MS = 6000;
-const COPIED_ICON_MS = 2000;
 const SUBMIT_FAILED_MESSAGE =
   "Couldn't save that. Nothing was changed, so try again.";
 
-const PRIMARY_BUTTON =
-  'inline-flex min-h-11 w-full items-center justify-center gap-2 rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground disabled:opacity-50';
-const OUTLINE_BUTTON =
-  'inline-flex min-h-11 items-center justify-center rounded-lg border border-border px-4 text-base font-semibold disabled:opacity-50';
-const DANGER_BUTTON =
-  'inline-flex min-h-11 items-center justify-center rounded-lg border border-destructive px-4 text-base font-semibold text-destructive disabled:opacity-50';
-const QUIET_BUTTON =
-  'inline-flex min-h-11 items-center justify-center rounded-lg px-4 text-base font-semibold disabled:opacity-50';
+const PAGE = 'mx-auto w-full max-w-md p-4 pt-6 md:max-w-5xl md:p-8';
+const HEADING = 'text-xl font-semibold leading-[1.2]';
 
 /** A two-step confirm that puts itself back after a few seconds (UI-SPEC, no dialog). */
 function useArmed<T>() {
@@ -62,7 +64,13 @@ function bannerDismissed(tripId: string): boolean {
  * when the status cannot be read, for demo personas (their PayPal comes from the buyer pool) and
  * after Dismiss, which is remembered per trip in localStorage.
  */
-function SaveBanner({ tripId }: { tripId: string }) {
+function SaveBanner({
+  tripId,
+  className,
+}: {
+  tripId: string;
+  className?: string;
+}) {
   const queryClient = useQueryClient();
   const me = useMe();
   const [dismissed, setDismissed] = useState(() => bannerDismissed(tripId));
@@ -88,24 +96,26 @@ function SaveBanner({ tripId }: { tripId: string }) {
     setDismissed(true);
   }
 
+  // A quiet reminder, not an emergency: a named region rather than the Alert default role=alert.
   return (
-    <section
+    <Alert
+      variant="money"
+      role="region"
       aria-label="Save PayPal"
-      className="mt-6 rounded-xl border border-l-4 border-border border-l-money p-4"
+      className={className}
     >
-      <div className="flex items-start gap-2">
-        <p className="min-w-0 flex-1 text-base">
-          Save PayPal so you can commit in one tap
-        </p>
-        <button
+      <p className="text-base">Save PayPal so you can commit in one tap</p>
+      <AlertAction className="top-0 right-0">
+        <Button
           type="button"
+          variant="ghost"
+          size="icon"
           aria-label="Dismiss"
           onClick={dismiss}
-          className="inline-flex size-11 shrink-0 items-center justify-center rounded-lg"
         >
-          <X aria-hidden="true" size={20} />
-        </button>
-      </div>
+          <X aria-hidden="true" />
+        </Button>
+      </AlertAction>
       <div className="mt-2">
         <SavePayPalButton
           setupTokenPath="/api/paypal/vault/setup-token"
@@ -122,26 +132,27 @@ function SaveBanner({ tripId }: { tripId: string }) {
           {SUBMIT_FAILED_MESSAGE}
         </p>
       )}
-    </section>
+    </Alert>
   );
 }
 
+/**
+ * The organiser's invite card: fetches the link, owns the reset and open/close requests, and
+ * renders the shared `InviteLinkCard` (copy, two-step reset, joining toggle and their motion).
+ */
 function InviteCard({
   tripId,
   joiningClosed,
-  onError,
   patchTrip,
+  animateEntrance,
 }: {
   tripId: string;
   joiningClosed: boolean;
-  onError: (failed: boolean) => void;
   patchTrip: (update: (trip: TripData) => TripData) => void;
+  animateEntrance: boolean;
 }) {
   const queryClient = useQueryClient();
-  const field = useRef<HTMLInputElement>(null);
-  const reset = useArmed<true>();
-  const [copied, setCopied] = useState(false);
-  const [copyFailed, setCopyFailed] = useState(false);
+  const [failed, setFailed] = useState(false);
   const path = { params: { path: { trip_id: tripId } } };
 
   const link = useQuery({
@@ -154,11 +165,10 @@ function InviteCard({
     mutationFn: async () =>
       unwrap(await api.POST('/api/trips/{trip_id}/invite/reset', path)),
     onSuccess: (data) => {
-      onError(false);
+      setFailed(false);
       queryClient.setQueryData(['invite-link', tripId], data);
-      reset.disarm();
     },
-    onError: () => onError(true),
+    onError: () => setFailed(true),
   });
   const toggleJoining = useMutation({
     mutationFn: async (closed: boolean) =>
@@ -169,125 +179,25 @@ function InviteCard({
         }),
       ),
     onSuccess: ({ joining_closed }) => {
-      onError(false);
+      setFailed(false);
       patchTrip((trip) => ({ ...trip, joining_closed }));
     },
-    onError: () => onError(true),
+    onError: () => setFailed(true),
   });
 
-  useEffect(() => {
-    if (!copied) {
-      return;
-    }
-    const timer = setTimeout(() => setCopied(false), COPIED_ICON_MS);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  async function copy() {
-    const url = link.data?.url;
-    if (url === undefined) {
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(url);
-      setCopyFailed(false);
-      setCopied(true);
-      toast('Copy the invite and drop it in your group chat');
-    } catch {
-      setCopyFailed(true);
-      field.current?.select();
-    }
-  }
-
-  const CopyIcon = copied ? Check : Copy;
   return (
-    <section className="rounded-xl border border-border p-4">
-      <h2 className="text-xl font-semibold leading-[1.2]">Invite link</h2>
-      {link.isError ? (
-        <div className="mt-4">
-          <p className="text-muted-foreground">We couldn't load that.</p>
-          <button
-            type="button"
-            onClick={() => link.refetch()}
-            className={`mt-2 ${OUTLINE_BUTTON}`}
-          >
-            Retry loading
-          </button>
-        </div>
-      ) : (
-        <>
-          <input
-            ref={field}
-            type="text"
-            readOnly
-            aria-label="Invite link address"
-            value={link.data?.url ?? ''}
-            className="mt-4 min-h-11 w-full truncate rounded-lg border border-muted-foreground bg-background px-4 text-base"
-          />
-          {copyFailed && (
-            <p className="mt-2 text-sm text-muted-foreground">
-              Press and hold to copy the link.
-            </p>
-          )}
-          <button
-            type="button"
-            disabled={link.data === undefined}
-            onClick={copy}
-            className={`mt-4 ${PRIMARY_BUTTON}`}
-          >
-            <CopyIcon aria-hidden="true" size={20} />
-            Copy invite link
-          </button>
-        </>
-      )}
-      <div className="mt-2 flex flex-wrap gap-2">
-        {reset.armed === null ? (
-          <button
-            type="button"
-            onClick={() => reset.arm(true)}
-            className={OUTLINE_BUTTON}
-          >
-            Reset link
-          </button>
-        ) : (
-          <div className="flex w-full flex-col gap-2">
-            <p className="text-sm">
-              Reset? The old link stops working right away.
-            </p>
-            <div className="flex flex-wrap gap-2">
-              <button
-                type="button"
-                disabled={resetLink.isPending}
-                onClick={() => resetLink.mutate()}
-                className={DANGER_BUTTON}
-              >
-                Yes, reset
-              </button>
-              <button
-                type="button"
-                onClick={reset.disarm}
-                className={QUIET_BUTTON}
-              >
-                Keep old link
-              </button>
-            </div>
-          </div>
-        )}
-        <button
-          type="button"
-          disabled={toggleJoining.isPending}
-          onClick={() => toggleJoining.mutate(!joiningClosed)}
-          className={OUTLINE_BUTTON}
-        >
-          {joiningClosed ? 'Open joining' : 'Close joining'}
-        </button>
-      </div>
-      {joiningClosed && (
-        <p className="mt-2 text-sm text-muted-foreground">
-          Joining is closed. Nobody new can use the link.
-        </p>
-      )}
-    </section>
+    <InviteLinkCard
+      url={link.data?.url}
+      joiningClosed={joiningClosed}
+      loadFailed={link.isError}
+      onRetry={() => void link.refetch()}
+      onResetLink={() => resetLink.mutate()}
+      resetPending={resetLink.isPending}
+      onToggleJoining={() => toggleJoining.mutate(!joiningClosed)}
+      togglePending={toggleJoining.isPending}
+      actionFailed={failed}
+      animateEntrance={animateEntrance}
+    />
   );
 }
 
@@ -355,53 +265,65 @@ function MemberRow({
   const confirming = armedId === member.account_id;
   return (
     <li
-      className={`flex min-h-14 flex-wrap items-center gap-3 px-4 py-2 ${entering ? ENTERING_ROW : ''}`}
+      className={cn(
+        'flex min-h-14 flex-wrap items-center gap-3 px-(--card-spacing) py-2',
+        entering && ENTERING_ROW,
+      )}
     >
       <Avatar
         name={shownName(member)}
         kind={member.avatar_kind}
         avatarKey={member.avatar_key}
       />
-      <span className="min-w-0 flex-1 truncate text-base font-semibold">
+      <span
+        title={shownName(member)}
+        className="min-w-0 flex-1 truncate text-base font-semibold"
+      >
         {shownName(member)}
       </span>
-      {member.role === 'organiser' && (
-        <span className="rounded-lg border border-border bg-muted px-2 text-sm font-semibold">
-          Organiser
-        </span>
-      )}
+      {member.role === 'organiser' && <Badge>Organiser</Badge>}
       {canRemove &&
         member.role !== 'organiser' &&
         (confirming ? (
           <span className="flex w-full flex-wrap items-center gap-2">
             <span className="text-sm">Remove {shownName(member)}?</span>
-            <button
+            <Button
               type="button"
+              variant="destructive"
               disabled={removing}
+              aria-busy={removing}
               onClick={() => onRemove(member.account_id)}
-              className={DANGER_BUTTON}
             >
+              {removing && <Spinner />}
               Yes, remove
-            </button>
-            <button type="button" onClick={onDisarm} className={QUIET_BUTTON}>
+            </Button>
+            <Button type="button" variant="ghost" onClick={onDisarm}>
               Keep {shownName(member)}
-            </button>
+            </Button>
           </span>
         ) : (
-          <button
+          <Button
             type="button"
+            variant="ghost"
             aria-label={`Remove ${shownName(member)}`}
             onClick={() => onArm(member.account_id)}
-            className={QUIET_BUTTON}
           >
             Remove
-          </button>
+          </Button>
         ))}
     </li>
   );
 }
 
-function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
+function TripContent({
+  trip,
+  tripId,
+  animateInvite,
+}: {
+  trip: TripData;
+  tripId: string;
+  animateInvite: boolean;
+}) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const remove = useArmed<string>();
@@ -502,150 +424,168 @@ function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
 
   const { name, members, is_organiser: isOrganiser } = trip;
   const removed = trip.removed_members ?? [];
+  // Phone: one column in the UI-SPEC order (header, save banner, invite card, members, plan
+  // placeholder, Leave). From md: a two-pane grid. The panes are `contents` on a phone so the
+  // `order-*` classes arrange their children in one column, and real flex columns from md, where
+  // each pane keeps its own DOM order (header first for screen readers) and `md:order-none` resets.
   return (
-    <div className="mx-auto w-full max-w-md p-4 pt-6">
-      <h1 className="text-balance break-words text-[1.75rem] font-semibold leading-[1.2]">
-        {name}
-      </h1>
-      <p className="mt-1 text-sm text-muted-foreground">
-        {members.length} of {MAX_MEMBERS} in
-      </p>
-      {failed && (
-        <p role="alert" className="mt-4 text-sm text-destructive">
-          {SUBMIT_FAILED_MESSAGE}
-        </p>
-      )}
-      <SaveBanner tripId={tripId} />
-      {isOrganiser && (
-        <div className="mt-6">
-          <InviteCard
-            tripId={tripId}
-            joiningClosed={trip.joining_closed}
-            onError={setFailed}
-            patchTrip={patchTrip}
-          />
-        </div>
-      )}
-      <h2 id="whos-in" className="mt-6 text-xl font-semibold leading-[1.2]">
-        Who's in
-      </h2>
-      <div aria-live="polite" className="sr-only">
-        {announcement}
-      </div>
-      <ul
-        aria-labelledby="whos-in"
-        className="mt-4 divide-y divide-border rounded-xl border border-border"
-      >
-        {members.map((member) => (
-          <MemberRow
-            key={member.account_id}
-            member={member}
-            entering={entered.has(member.account_id)}
-            canRemove={isOrganiser}
-            armedId={remove.armed}
-            onArm={remove.arm}
-            onDisarm={remove.disarm}
-            onRemove={(accountId) => removeMember.mutate(accountId)}
-            removing={removeMember.isPending}
-          />
-        ))}
-      </ul>
-      {lastRemoved !== null && (
-        <p className="mt-2 text-sm text-muted-foreground">
-          {lastRemoved} can't rejoin from the invite link unless you add them
-          back.
-        </p>
-      )}
-      {members.length === 1 && (
-        <div className="mt-4">
-          <h3 className="text-base font-semibold">
-            Just you so far. Send the invite!
-          </h3>
-          <p className="mt-1 text-muted-foreground">
-            Copy the invite and drop it in your group chat.
-          </p>
-        </div>
-      )}
-      {isOrganiser && removed.length > 0 && (
-        <>
-          <h2 id="removed" className="mt-6 text-xl font-semibold leading-[1.2]">
-            Removed
-          </h2>
-          <ul
-            aria-labelledby="removed"
-            className="mt-4 divide-y divide-border rounded-xl border border-border"
-          >
-            {removed.map((person) => (
-              <li
-                key={person.account_id}
-                className="flex min-h-14 items-center gap-3 px-4 py-2"
-              >
-                <Avatar
-                  name={person.display_name}
-                  kind="initials"
-                  avatarKey={null}
-                />
-                <span
-                  id={`removed-${person.account_id}`}
-                  className="min-w-0 flex-1 truncate text-base font-semibold"
-                >
-                  {person.display_name}
-                </span>
-                <button
-                  type="button"
-                  aria-describedby={`removed-${person.account_id}`}
-                  disabled={readdMember.isPending}
-                  onClick={() => readdMember.mutate(person.account_id)}
-                  className={OUTLINE_BUTTON}
-                >
-                  Add back
-                </button>
-              </li>
-            ))}
-          </ul>
-        </>
-      )}
-      <div className="mt-6 rounded-xl border border-dashed border-border p-4 text-muted-foreground">
-        <p>Your plan will appear here once the group starts planning</p>
-        <p className="mt-1">Nobody pays anything yet.</p>
-      </div>
-      {!isOrganiser && (
-        <div className="mt-6">
-          {leave.armed === null ? (
-            <button
-              type="button"
-              onClick={() => leave.arm(true)}
-              className={QUIET_BUTTON}
-            >
-              Leave trip
-            </button>
-          ) : (
-            <div className="flex flex-col gap-2">
-              <p className="text-base font-semibold">Leave {name}?</p>
-              <p className="text-sm text-muted-foreground">
-                You'll need a new invite to come back.
+    <div className={PAGE}>
+      <div className="flex flex-col gap-6 md:grid md:grid-cols-[320px_1fr] md:items-start md:gap-8">
+        <div className="contents md:col-start-2 md:row-start-1 md:flex md:flex-col md:gap-6">
+          <div className="order-1 md:order-none">
+            <h1 className="text-balance break-words text-display font-semibold leading-[1.2]">
+              {name}
+            </h1>
+            <p className="mt-1 text-sm text-muted-foreground">
+              {members.length} of {MAX_MEMBERS} in
+            </p>
+            {failed && (
+              <p role="alert" className="mt-4 text-sm text-destructive">
+                {SUBMIT_FAILED_MESSAGE}
               </p>
-              <div className="flex flex-wrap gap-2">
-                <button
+            )}
+          </div>
+          <SaveBanner tripId={tripId} className="order-2 md:order-none" />
+          <Card className="order-5 border-dashed text-muted-foreground md:order-none">
+            <CardContent>
+              <p>Your plan will appear here once the group starts planning</p>
+              <p className="mt-1">Nobody pays anything yet.</p>
+            </CardContent>
+          </Card>
+        </div>
+        <div className="contents md:sticky md:top-[88px] md:col-start-1 md:row-start-1 md:flex md:flex-col md:gap-6">
+          {isOrganiser && (
+            <div className="order-3 md:order-none">
+              <InviteCard
+                tripId={tripId}
+                joiningClosed={trip.joining_closed}
+                patchTrip={patchTrip}
+                animateEntrance={animateInvite}
+              />
+            </div>
+          )}
+          <Card className="order-4 md:order-none">
+            <CardHeader>
+              <h2 id="whos-in" className={HEADING}>
+                Who's in
+              </h2>
+            </CardHeader>
+            <div aria-live="polite" className="sr-only">
+              {announcement}
+            </div>
+            <ul aria-labelledby="whos-in" className="divide-y divide-border">
+              {members.map((member) => (
+                <MemberRow
+                  key={member.account_id}
+                  member={member}
+                  entering={entered.has(member.account_id)}
+                  canRemove={isOrganiser}
+                  armedId={remove.armed}
+                  onArm={remove.arm}
+                  onDisarm={remove.disarm}
+                  onRemove={(accountId) => removeMember.mutate(accountId)}
+                  removing={removeMember.isPending}
+                />
+              ))}
+            </ul>
+            {(lastRemoved !== null || members.length === 1) && (
+              <CardContent className="flex flex-col gap-4">
+                {lastRemoved !== null && (
+                  <p className="text-sm text-muted-foreground">
+                    {lastRemoved} can't rejoin from the invite link unless you
+                    add them back.
+                  </p>
+                )}
+                {members.length === 1 && (
+                  <EmptyState
+                    as="h3"
+                    title="Just you so far. Send the invite!"
+                    description="Copy the invite and drop it in your group chat."
+                  />
+                )}
+              </CardContent>
+            )}
+          </Card>
+          {isOrganiser && removed.length > 0 && (
+            <Card className="order-4 md:order-none">
+              <CardHeader>
+                <h2 id="removed" className={HEADING}>
+                  Removed
+                </h2>
+              </CardHeader>
+              <ul aria-labelledby="removed" className="divide-y divide-border">
+                {removed.map((person) => (
+                  <li
+                    key={person.account_id}
+                    className="flex min-h-14 items-center gap-3 px-(--card-spacing) py-2"
+                  >
+                    <Avatar
+                      name={person.display_name}
+                      kind="initials"
+                      avatarKey={null}
+                    />
+                    <span
+                      id={`removed-${person.account_id}`}
+                      title={person.display_name}
+                      className="min-w-0 flex-1 truncate text-base font-semibold"
+                    >
+                      {person.display_name}
+                    </span>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      aria-describedby={`removed-${person.account_id}`}
+                      disabled={readdMember.isPending}
+                      onClick={() => readdMember.mutate(person.account_id)}
+                    >
+                      Add back
+                    </Button>
+                  </li>
+                ))}
+              </ul>
+            </Card>
+          )}
+          {!isOrganiser && (
+            <div className="order-6 md:order-none">
+              {leave.armed === null ? (
+                <Button
                   type="button"
-                  disabled={leaveTrip.isPending}
-                  onClick={() => leaveTrip.mutate()}
-                  className={DANGER_BUTTON}
+                  variant="ghost"
+                  onClick={() => leave.arm(true)}
                 >
                   Leave trip
-                </button>
-                <button
-                  type="button"
-                  onClick={leave.disarm}
-                  className={QUIET_BUTTON}
-                >
-                  Stay in trip
-                </button>
-              </div>
+                </Button>
+              ) : (
+                <div className="flex flex-col gap-2">
+                  <p className="text-base font-semibold">Leave {name}?</p>
+                  <p className="text-sm text-muted-foreground">
+                    You'll need a new invite to come back.
+                  </p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="destructive"
+                      disabled={leaveTrip.isPending}
+                      aria-busy={leaveTrip.isPending}
+                      onClick={() => leaveTrip.mutate()}
+                    >
+                      {leaveTrip.isPending && <Spinner />}
+                      Leave trip
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      onClick={leave.disarm}
+                    >
+                      Stay in trip
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
-      )}
+      </div>
     </div>
   );
 }
@@ -657,6 +597,11 @@ function TripContent({ trip, tripId }: { trip: TripData; tripId: string }) {
  */
 export function TripPage() {
   const { tripId = '' } = useParams();
+  const queryClient = useQueryClient();
+  // The invite card plays its entrance only when the trip was not already on screen from cache.
+  const [cachedAtMount] = useState(
+    () => queryClient.getQueryData(['trip', tripId]) !== undefined,
+  );
   useTripEvents(tripId);
   const trip = useQuery({
     queryKey: ['trip', tripId],
@@ -671,8 +616,8 @@ export function TripPage() {
 
   if (trip.isPending) {
     return (
-      <div aria-busy="true" className="mx-auto w-full max-w-md p-4 pt-6">
-        <p className="text-muted-foreground">Loading your trip</p>
+      <div className={PAGE}>
+        <SkeletonList withTitle />
       </div>
     );
   }
@@ -680,22 +625,16 @@ export function TripPage() {
   if (trip.isError) {
     return (
       <div className="mx-auto w-full max-w-md p-4 pt-6">
-        <h1 className="text-xl font-semibold leading-[1.2]">
-          We couldn't load that.
-        </h1>
-        <p className="mt-2 text-muted-foreground">
-          Check your connection and try again.
-        </p>
-        <button
-          type="button"
-          onClick={() => trip.refetch()}
-          className="mt-4 min-h-11 rounded-lg bg-primary hover:bg-primary-hover px-4 text-base font-semibold text-primary-foreground"
-        >
-          Retry loading
-        </button>
+        <ErrorRetry onRetry={() => void trip.refetch()} />
       </div>
     );
   }
 
-  return <TripContent trip={trip.data} tripId={tripId} />;
+  return (
+    <TripContent
+      trip={trip.data}
+      tripId={tripId}
+      animateInvite={!cachedAtMount}
+    />
+  );
 }
