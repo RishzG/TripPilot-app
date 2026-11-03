@@ -1,0 +1,15 @@
+flowchart TD
+    UI["React: Chat, Plan, Bookings, Trip, Splits"] --> API["FastAPI: identity, permissions, feature APIs"]
+    API --> DB[("PostgreSQL: state, versions, decisions, accounting")]
+    API --> JOBS["Durable jobs"]
+    JOBS --> WORKER["Background worker"]
+    WORKER --> PILOT["Pilot: read, research, propose"]
+    PILOT --> MODEL["Model provider"]
+    PILOT --> DATA["Search, Places, Routes, travel adapters"]
+    PILOT --> DB
+    DB --> EVENTS["Committed trip events"]
+    EVENTS --> UI
+    API --> MONEY["Human-authorized payment service"]
+    MONEY --> PP["PayPal sandbox"]
+    PP -->|"Verified webhooks + reconciliation"| API
+    API --> FILES["Private receipt storage"]

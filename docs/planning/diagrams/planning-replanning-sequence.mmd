@@ -1,0 +1,19 @@
+sequenceDiagram
+    participant U as Member / leader
+    participant A as FastAPI
+    participant D as PostgreSQL
+    participant W as Worker / Pilot
+    participant R as Model + research providers
+    U->>A: Request plan/change with base version
+    A->>D: Save request + durable dispatch record
+    A-->>U: Run ID and queued status
+    W->>D: Claim job; read authorized current context
+    W->>R: Bounded research + structured planning
+    R-->>W: Sources + structured proposal
+    W->>W: Validate facts/shape; calculate shares in code
+    W->>D: Save proposal and committed events
+    D-->>U: Live proposal update
+    U->>A: Responses / finalize request
+    A->>D: Lock and validate base version + consent/deadline
+    A->>D: Save new active version and event atomically
+    D-->>U: Updated itinerary, map and budget
