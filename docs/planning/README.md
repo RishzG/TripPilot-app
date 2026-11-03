@@ -2,12 +2,17 @@
 
 Saved November 3, 2026 (America/Chicago). This archive preserves the discussion so it can be continued without relying on chat history. It is a working specification, not a finalized implementation contract.
 
+**Latest baseline:** design the product from zero. The user clarified that previous code was only for testing setup and sponsors. No product implementation is credited as complete. Start with [the feature implementation map and project architecture](feature-map-and-architecture.md); it supersedes earlier assumptions about reusing existing foundations.
+
 - [Product discussion and decisions](discussion-and-decisions.md): intended journey, alternatives, feature tradeoffs, sponsor options, costs, unresolved questions, and editable Mermaid diagrams.
+- [Feature implementation map and project architecture](feature-map-and-architecture.md): current from-zero roadmap, dependencies, review checkpoints, module boundaries, data flow and project structure.
 - [Milestone 01: planning, replanning, and payment feasibility](milestone-01.md): concrete scenarios, architecture, proposed interfaces, acceptance checks, and implementation order.
 - [Payment feasibility evidence](payment-feasibility.md): official documentation findings, missing execution prerequisites, smallest valid sandbox proof, and a support question draft that has not been sent.
 - [UI concepts](ui-concepts.md): nine active desktop concept images covering the discussed features, an archived future mobile concept, and behavior notes.
 
 Editable chart sources are also saved separately: [app journey](diagrams/app-journey.mmd), [system architecture](diagrams/system-architecture.mmd), and [planning/replanning sequence](diagrams/planning-replanning-sequence.mmd). The Markdown documents embed the same Mermaid diagrams for preview in compatible viewers. Ten selected PNG concepts (nine desktop, one archived mobile board) are stored locally under `images/`, along with an unselected expense-screen draft; [original image prompts](image-prompts.md) and [additional desktop prompts](desktop-feature-prompts.md) record how they were generated.
+
+Current from-zero chart sources: [feature implementation order](diagrams/feature-implementation-order.mmd) and [project architecture](diagrams/greenfield-project-architecture.mmd). The earlier system diagram remains historical context.
 
 ## Which source wins?
 

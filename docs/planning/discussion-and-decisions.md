@@ -2,6 +2,8 @@
 
 Saved November 3, 2026. Status: working product and technical discussion.
 
+Latest clarification: **ignore prior implementation progress; it was only setup/sponsor testing.** Use the [from-zero feature map and architecture](feature-map-and-architecture.md) as the current technical baseline. Earlier code observations below are historical and do not establish completed product features.
+
 ## 1. Product baseline supplied by the user
 
 TripPilot is a shared planning space for friends. Pilot turns their discussion into a researched, agreed itinerary, organizes individual and shared booking/payment tasks, supports changes during the trip, and tracks expenses and settlement.
@@ -51,7 +53,7 @@ There is no agency role in this baseline. A group leader coordinates the trip an
 
 | Topic | User's choice |
 | --- | --- |
-| Baseline for progress/feasibility | Use the project reported in the update PDF; distinguish it from the local starter |
+| Baseline for progress/feasibility | Superseded: design from zero; earlier work was setup/sponsor testing only |
 | Main demo story | Plan and pay together |
 | Budget | Up to USD 10 out of pocket after sponsor credits, through judging |
 | Demo payment region | US members using USD |
