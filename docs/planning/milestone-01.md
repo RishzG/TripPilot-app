@@ -2,6 +2,8 @@
 
 Prepared November 3, 2026. Status: proposed implementation specification. No application implementation or sandbox transfer has been performed as part of writing this document.
 
+Latest clarification: prior code is setup/sponsor experimentation only. No feature in this milestone is assumed implemented. The [from-zero feature map and architecture](feature-map-and-architecture.md) now governs build order and architecture; this document retains the detailed planning/replanning scenarios.
+
 The user explicitly selected **technical design only for now** after this milestone was drafted. The delivery order below describes future implementation; it is not an instruction to start coding.
 
 Demo platform: **desktop web app only**. Suggested verification viewports are 1366 x 768 (laptop) and 1920 x 1080 (desktop). These are proposed test sizes, not a restriction on the underlying API. Mobile layouts, phone-browser tests, PWA/native packaging, and touch-specific polish are deferred.
@@ -18,7 +20,7 @@ The planning slice must remain useful if payment integration is unresolved. It m
 
 Suggested fixture, not a final destination decision: four US friends, USD, a three-day trip to one researched region, one shared stay, and a mix of free/paid activities. Use relative future dates when seeding. Each person has an origin, preferences, and a per-person budget. All sample prices remain labeled until tied to a real source or supplied quote.
 
-1. Leader creates the group and members join through existing identity/invite flow.
+1. Leader creates the group and members join through the identity/invite flow built for this product.
 2. Chat includes preferences and one conflicting suggestion; the leader invokes `/plan` or the equivalent button.
 3. Pilot publishes its understanding, asks one unresolved question if needed, researches a bounded set of options, then proposes version 1.
 4. Members can inspect sources, an itinerary, a day map, and estimated shares. The leader selects version 1.
@@ -34,24 +36,20 @@ Include chat, basic preferences, one reusable question/poll type, a real bounded
 
 Defer receipt OCR, complete trip settlement, agency portals, autonomous merchant checkout, deep-cart generation across arbitrary sites, a full catalog of interaction formats, and AG Studio analytics. Research and UI adapters should allow those later without requiring them now.
 
-## Existing foundations to reuse
+## From-zero foundation
 
-The remote teammate project already contains React/TypeScript, React Query, FastAPI/Pydantic, SQLAlchemy/Alembic, Procrastinate, database-backed trip events/SSE, identity and membership, PayPal gateway/fake abstractions, and an append-only money audit log.
-
-Current remote webhook processing records verified events but does not yet perform complete payment-resource reconciliation. Current gateway methods emphasize authorization holds; they do not establish support for member-to-leader P2P.
-
-Implementation-location dependency: `D:/Projects/TripPilot` is a separate starter checkout with uncommitted work. Confirm where application changes belong before implementing; do not reset, replace, or merge it as a shortcut.
+Build and verify the application shell, identity, membership, database/migrations, job execution, event delivery and accounting foundations as part of this product. Earlier setup/sponsor experiments do not count as completed features or dictate framework choices. See the current architecture document for independent technology recommendations.
 
 ## Proposed architecture and interfaces
 
 ### Commands and live updates
 
 - HTTP handles posting messages, invoking Pilot, responding to decisions, selecting plans, and finalizing changes.
-- Extend existing trip SSE for persisted `message.created`, `pilot.run.updated`, `proposal.created`, `decision.updated`, `plan.selected`, and `booking_task.updated` events.
+- Implement trip SSE for persisted `message.created`, `pilot.run.updated`, `proposal.created`, `decision.updated`, `plan.selected`, and `booking_task.updated` events.
 - Enforce membership on every command and event subscription. Reconnecting clients replay from the last event ID, then refetch the current plan when replay is unavailable.
 - Persist state before publishing live events. Use a transactionally written outbox for reliable job dispatch if enqueueing cannot share the business transaction.
 
-Proposed route groups (adapt exact prefixes to the existing API):
+Proposed route groups (align exact prefixes with the new API contract):
 
 | Route | Behavior |
 | --- | --- |

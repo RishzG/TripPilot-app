@@ -1,0 +1,32 @@
+flowchart TB
+    U["Desktop browser · React + TypeScript<br/>Chat · Plan · Bookings · Trip · Splits · Account"]
+    subgraph SERVER["Application backend · one modular codebase"]
+        API["FastAPI HTTP API<br/>Sessions · membership checks · validated commands"]
+        DOMAIN["Domain modules<br/>Trips · Chat/decisions · Plans/proposals<br/>Transport/bookings · Accounting/payments"]
+        LIVE["SSE live event endpoint"]
+        WORK["Background worker<br/>Pilot jobs · reminders · receipt extraction · reconciliation"]
+        PILOT["Pilot orchestration<br/>Context → research → structured proposal"]
+        ADAPT["Provider adapters<br/>Model · Search · Places/routes · PayPal · Files"]
+        API --> DOMAIN
+        WORK --> DOMAIN
+        WORK --> PILOT
+        PILOT -->|"Read/research/propose tools"| DOMAIN
+        PILOT --> ADAPT
+        DOMAIN --> ADAPT
+    end
+    DB[("PostgreSQL<br/>Business records · jobs · events · audit")]
+    FILES["Private object storage<br/>Receipts and booking confirmations"]
+    DATA["External services<br/>Model · Search · Places/routes"]
+    PP["PayPal<br/>Login + payment integration after feasibility gate"]
+    MERCHANT["External booking website<br/>User or leader completes checkout"]
+    U -->|"HTTP commands and queries"| API
+    LIVE -->|"Committed trip updates"| U
+    DOMAIN --> DB
+    WORK --> DB
+    LIVE -->|"Read authorized persisted events"| DB
+    API -->|"Schedule durable jobs"| DB
+    ADAPT --> DATA
+    ADAPT --> FILES
+    ADAPT --> PP
+    PP -->|"Verified notifications where supported"| API
+    U -->|"Open provider link; book externally"| MERCHANT

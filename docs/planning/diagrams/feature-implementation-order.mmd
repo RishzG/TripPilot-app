@@ -1,0 +1,22 @@
+flowchart TD
+    P["0A · Verify PayPal transfer and confirmation path"]
+    R["0B · Verify travel research, places and routes"]
+    A["1 · App foundation, database and identity"]
+    B["2 · Trips, profiles, invitations and permissions"]
+    C["3 · Group chat and live updates"]
+    D["4 · Plan model, cent-based budgets and day map"]
+    E["5 · Pilot researches and creates a draft"]
+    F["6 · Group decisions, versions and initial selection"]
+    G["7 · Replanning, acceptance, deadlines and opt-out"]
+    H["8 · Arrival groups and local transport"]
+    I["9 · Personal/group booking tasks and confirmations"]
+    J["10 · Contributions, cover agreements and PayPal integration"]
+    K["11 · Expenses, receipt review and settlement"]
+    L["12 · Complete dashboard, notifications and demo hardening"]
+    A --> B --> C --> D --> E --> F --> G --> H --> I --> J --> K --> L
+    R --> E
+    P -->|"Supported design agreed before live integration"| J
+    D -->|"Money calculations and allocation rules"| J
+    D -->|"Day map and estimates start here"| L
+    I -->|"Booking status feeds dashboard"| L
+    K -->|"Actual spending and balances feed dashboard"| L
