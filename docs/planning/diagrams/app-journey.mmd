@@ -1,0 +1,29 @@
+flowchart TD
+    A["Leader creates trip: dates, mood, initial budget"] --> B["Invite friends"]
+    B --> C["PayPal login + travel preferences"]
+    C --> D["Group chat"]
+    D --> E["Leader invokes Pilot"]
+    E --> F["Summarize preferences and unresolved questions"]
+    F --> G["Research destinations, stays and activities"]
+    G --> H["Discuss options: polls, rankings, private concerns"]
+    H --> I["Draft itinerary + day-wise map + estimated costs"]
+    I --> J{"Leader selects a version?"}
+    J -->|Revise| D
+    J -->|Yes| K["Finalize individual arrivals and local transport"]
+    K --> L["Create personal booking and payment tasks"]
+    L --> M{"Shared booking?"}
+    M -->|Yes| N["Members contribute to leader; verify payments"]
+    N --> O["Leader completes external checkout"]
+    M -->|No| P["Individual completes external checkout"]
+    O --> Q["Store booking confirmation or receipt"]
+    P --> Q
+    Q --> R["Trip dashboard: schedule, map, budget, bookings"]
+    R --> S["Record expenses and splits"]
+    S --> T["PayPal settlement or confirmed manual settlement"]
+    R --> U["Cancellation or change of mind"]
+    U --> V["Pilot proposes replacement + cost difference"]
+    V --> W["Affected members respond"]
+    W --> X{"Accepted, or leader finalizes after deadline?"}
+    X -->|No| V
+    X -->|Yes| Y["Save new version; update schedule and booking tasks"]
+    Y --> R
