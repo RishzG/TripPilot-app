@@ -1,8 +1,6 @@
 # trippilot
 AI-powered group trip planning and coordinated payments
 
-<<<<<<< Updated upstream
-=======
 ## Development progress
 
 See [docs/progress](docs/progress/README.md) for implemented features, known issues, verification,
@@ -12,7 +10,6 @@ history remain in [docs/planning](docs/planning/README.md).
 See the [shared style guide](docs/style-guide.md) for the current theme, reusable UI components,
 layout conventions and instructions for teammates making visual changes.
 
->>>>>>> Stashed changes
 ## Try it as a judge
 
 Coming soon. The hosted production URL and the public sandbox judge logins are added here when the

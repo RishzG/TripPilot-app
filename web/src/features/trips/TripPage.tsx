@@ -1,7 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { X } from 'lucide-react';
 import { useEffect, useRef, useState } from 'react';
-import { useNavigate, useParams } from 'react-router';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router';
+import { toast } from 'sonner';
 import { Avatar, shownName } from '@/components/Avatar';
 import { EmptyState } from '@/components/EmptyState';
 import { ErrorRetry } from '@/components/ErrorRetry';
@@ -13,16 +14,24 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Spinner } from '@/components/ui/spinner';
 import { cn } from '@/lib/utils';
-import { api, unwrap } from '../../lib/api';
+import { ApiError, api, unwrap } from '../../lib/api';
 import type { components } from '../../lib/api-types';
 import { useMe } from '../auth/useMe';
 import { SavePayPalButton } from '../paypal/SavePayPalButton';
+import { GroupChat } from './GroupChat';
+import { TravelPreferencesPanel } from './TravelPreferencesPanel';
+import {
+  EmptyPlan,
+  TripWorkspace,
+  UpcomingView,
+  WORKSPACE_VIEWS,
+  type WorkspaceView,
+} from './TripWorkspace';
 import { useTripEvents } from './useTripEvents';
 
 type TripData = components['schemas']['TripView'];
 type MemberData = components['schemas']['MemberView'];
 
-const MAX_MEMBERS = 12;
 const CONFIRM_REVERT_MS = 6000;
 const SUBMIT_FAILED_MESSAGE =
   "Couldn't save that. Nothing was changed, so try again.";
@@ -243,6 +252,104 @@ function useArrivals(members: MemberData[]): {
 const ENTERING_ROW =
   'motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-2';
 
+function DeleteWorkspace({
+  tripId,
+  name,
+  canDelete,
+}: {
+  tripId: string;
+  name: string;
+  canDelete: boolean;
+}) {
+  const [confirming, setConfirming] = useState(false);
+  const navigate = useNavigate();
+  const queryClient = useQueryClient();
+  const remove = useMutation({
+    mutationFn: async () =>
+      unwrap(
+        await api.DELETE('/api/trips/{trip_id}', {
+          params: { path: { trip_id: tripId } },
+        }),
+      ),
+    onSuccess: () => {
+      navigate('/');
+      for (const key of [
+        'trip',
+        'trip-preferences',
+        'trip-messages',
+        'invite-link',
+      ]) {
+        queryClient.removeQueries({ queryKey: [key, tripId], exact: true });
+      }
+      queryClient.removeQueries({ queryKey: ['trips'] });
+    },
+  });
+  return (
+    <Card>
+      <CardContent className="flex flex-col gap-3">
+        {confirming && canDelete ? (
+          <>
+            <h2 className="font-semibold">Delete {name}?</h2>
+            <p className="text-sm text-muted-foreground">
+              This permanently deletes the workspace, its messages, trip
+              preferences and invite link. All other members must have left or
+              been removed.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <Button
+                type="button"
+                variant="outline"
+                disabled={remove.isPending}
+                onClick={() => {
+                  setConfirming(false);
+                  remove.reset();
+                }}
+              >
+                Keep workspace
+              </Button>
+              <Button
+                type="button"
+                variant="destructive"
+                disabled={remove.isPending}
+                aria-busy={remove.isPending}
+                onClick={() => remove.mutate()}
+              >
+                {remove.isPending ? 'Deleting…' : 'Yes, delete workspace'}
+              </Button>
+            </div>
+            {remove.isError && (
+              <p role="alert" className="text-sm text-destructive">
+                {remove.error instanceof ApiError && remove.error.status === 409
+                  ? 'Other active members must leave or be removed before deleting this workspace.'
+                  : 'Couldn’t delete the workspace. Try again.'}
+              </p>
+            )}
+          </>
+        ) : (
+          <>
+            <p className="text-sm text-muted-foreground">
+              {canDelete
+                ? 'Only you remain in this workspace.'
+                : 'All other members must leave or be removed before you can delete this workspace.'}
+            </p>
+            <Button
+              type="button"
+              variant="outline"
+              disabled={!canDelete}
+              onClick={() => {
+                remove.reset();
+                setConfirming(true);
+              }}
+            >
+              Delete workspace
+            </Button>
+          </>
+        )}
+      </CardContent>
+    </Card>
+  );
+}
+
 function MemberRow({
   member,
   entering,
@@ -326,6 +433,24 @@ function TripContent({
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const chatWorkspace = useRef<HTMLElement>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const view =
+    WORKSPACE_VIEWS.find((item) => item === searchParams.get('view')) ?? 'chat';
+  function changeView(next: WorkspaceView) {
+    setSearchParams((current) => {
+      const updated = new URLSearchParams(current);
+      if (next === 'chat') updated.delete('view');
+      else updated.set('view', next);
+      return updated;
+    });
+  }
+  function openChat() {
+    changeView('chat');
+  }
+  useEffect(() => {
+    if (view === 'chat') chatWorkspace.current?.focus({ preventScroll: true });
+  }, [view]);
   const remove = useArmed<string>();
   const leave = useArmed<true>();
   const [failed, setFailed] = useState(false);
@@ -424,169 +549,283 @@ function TripContent({
 
   const { name, members, is_organiser: isOrganiser } = trip;
   const removed = trip.removed_members ?? [];
-  // Phone: one column in the UI-SPEC order (header, save banner, invite card, members, plan
-  // placeholder, Leave). From md: a two-pane grid. The panes are `contents` on a phone so the
-  // `order-*` classes arrange their children in one column, and real flex columns from md, where
-  // each pane keeps its own DOM order (header first for screen readers) and `md:order-none` resets.
   return (
-    <div className={PAGE}>
-      <div className="flex flex-col gap-6 md:grid md:grid-cols-[320px_1fr] md:items-start md:gap-8">
-        <div className="contents md:col-start-2 md:row-start-1 md:flex md:flex-col md:gap-6">
-          <div className="order-1 md:order-none">
-            <h1 className="text-balance break-words text-display font-semibold leading-[1.2]">
-              {name}
-            </h1>
-            <p className="mt-1 text-sm text-muted-foreground">
-              {members.length} of {MAX_MEMBERS} in
-            </p>
-            {failed && (
-              <p role="alert" className="mt-4 text-sm text-destructive">
-                {SUBMIT_FAILED_MESSAGE}
-              </p>
-            )}
-          </div>
-          <SaveBanner tripId={tripId} className="order-2 md:order-none" />
-          <Card className="order-5 border-dashed text-muted-foreground md:order-none">
-            <CardContent>
-              <p>Your plan will appear here once the group starts planning</p>
-              <p className="mt-1">Nobody pays anything yet.</p>
-            </CardContent>
-          </Card>
+    <TripWorkspace trip={trip} view={view} onNavigate={changeView}>
+      <div className="flex h-full min-h-0 flex-col gap-4">
+        <div aria-live="polite" className="sr-only">
+          {announcement}
         </div>
-        <div className="contents md:sticky md:top-[88px] md:col-start-1 md:row-start-1 md:flex md:flex-col md:gap-6">
-          {isOrganiser && (
-            <div className="order-3 md:order-none">
-              <InviteCard
-                tripId={tripId}
-                joiningClosed={trip.joining_closed}
-                patchTrip={patchTrip}
-                animateEntrance={animateInvite}
-              />
-            </div>
-          )}
-          <Card className="order-4 md:order-none">
-            <CardHeader>
-              <h2 id="whos-in" className={HEADING}>
-                Who's in
-              </h2>
-            </CardHeader>
-            <div aria-live="polite" className="sr-only">
-              {announcement}
-            </div>
-            <ul aria-labelledby="whos-in" className="divide-y divide-border">
-              {members.map((member) => (
-                <MemberRow
-                  key={member.account_id}
-                  member={member}
-                  entering={entered.has(member.account_id)}
-                  canRemove={isOrganiser}
-                  armedId={remove.armed}
-                  onArm={remove.arm}
-                  onDisarm={remove.disarm}
-                  onRemove={(accountId) => removeMember.mutate(accountId)}
-                  removing={removeMember.isPending}
+        {failed && (
+          <p
+            role="alert"
+            className="rounded-xl border border-destructive/20 bg-card p-3 text-sm text-destructive"
+          >
+            {SUBMIT_FAILED_MESSAGE}
+          </p>
+        )}
+        <SaveBanner tripId={tripId} />
+        <div
+          hidden={view !== 'chat'}
+          className={
+            view === 'chat'
+              ? 'mx-auto min-h-0 w-full max-w-6xl flex-1'
+              : 'hidden'
+          }
+        >
+          <section
+            id="group-chat"
+            ref={chatWorkspace}
+            tabIndex={-1}
+            aria-label="Group chat workspace"
+            className="h-full min-h-0 outline-none"
+          >
+            <GroupChat
+              key={`chat-${tripId}`}
+              tripId={tripId}
+              fill
+              active={view === 'chat'}
+            />
+          </section>
+        </div>
+        {view === 'plan' && (
+          <div className="mx-auto min-h-0 w-full max-w-7xl flex-1">
+            <EmptyPlan onNavigate={changeView} />
+          </div>
+        )}
+        <section
+          hidden={view !== 'preferences'}
+          className={
+            view === 'preferences'
+              ? 'mx-auto grid w-full max-w-6xl gap-6 xl:grid-cols-[minmax(0,1fr)_280px]'
+              : 'hidden'
+          }
+          aria-label="Travel preferences workspace"
+        >
+          <TravelPreferencesPanel
+            key={tripId}
+            tripId={tripId}
+            onSaved={() => {
+              toast('Preferences saved');
+              openChat();
+            }}
+          />
+          <aside className="self-start rounded-2xl border border-border bg-card p-6 text-sm leading-relaxed">
+            <p className="font-semibold">Make this trip feel like you.</p>
+            <p className="mt-3 text-muted-foreground">
+              A starting city, a few interests and your preferred pace help the
+              group understand what works for you.
+            </p>
+            <div className="my-5 border-t border-border" />
+            <p className="font-semibold">Shared with the group</p>
+            <p className="mt-1 text-muted-foreground">
+              Starting city, interests and pace.
+            </p>
+            <p className="mt-5 font-semibold">Private to you</p>
+            <p className="mt-1 text-muted-foreground">
+              Your budget and dietary notes stay out of group summaries.
+            </p>
+          </aside>
+        </section>
+        <section
+          hidden={view !== 'group'}
+          className={view === 'group' ? 'mx-auto w-full max-w-6xl' : 'hidden'}
+          aria-label="Group management"
+        >
+          <div className="mb-6">
+            <h2 className="text-2xl font-semibold">Your group</h2>
+            <p className="mt-1 text-sm text-muted-foreground">
+              Who's coming, how to join, and the details that keep everyone
+              together.
+            </p>
+          </div>
+          <div className="grid items-start gap-6 xl:grid-cols-[minmax(0,1fr)_360px]">
+            {isOrganiser && (
+              <div className="xl:col-start-2 xl:row-start-1">
+                <InviteCard
+                  tripId={tripId}
+                  joiningClosed={trip.joining_closed}
+                  patchTrip={patchTrip}
+                  animateEntrance={animateInvite}
                 />
-              ))}
-            </ul>
-            {(lastRemoved !== null || members.length === 1) && (
-              <CardContent className="flex flex-col gap-4">
-                {lastRemoved !== null && (
-                  <p className="text-sm text-muted-foreground">
-                    {lastRemoved} can't rejoin from the invite link unless you
-                    add them back.
-                  </p>
-                )}
-                {members.length === 1 && (
-                  <EmptyState
-                    as="h3"
-                    title="Just you so far. Send the invite!"
-                    description="Copy the invite and drop it in your group chat."
-                  />
-                )}
-              </CardContent>
+              </div>
             )}
-          </Card>
-          {isOrganiser && removed.length > 0 && (
-            <Card className="order-4 md:order-none">
+            <Card className="xl:col-start-1 xl:row-start-1">
               <CardHeader>
-                <h2 id="removed" className={HEADING}>
-                  Removed
+                <h2 id="whos-in" className={HEADING}>
+                  Who's in
                 </h2>
               </CardHeader>
-              <ul aria-labelledby="removed" className="divide-y divide-border">
-                {removed.map((person) => (
-                  <li
-                    key={person.account_id}
-                    className="flex min-h-14 items-center gap-3 px-(--card-spacing) py-2"
-                  >
-                    <Avatar
-                      name={person.display_name}
-                      kind="initials"
-                      avatarKey={null}
-                    />
-                    <span
-                      id={`removed-${person.account_id}`}
-                      title={person.display_name}
-                      className="min-w-0 flex-1 truncate text-base font-semibold"
-                    >
-                      {person.display_name}
-                    </span>
-                    <Button
-                      type="button"
-                      variant="outline"
-                      aria-describedby={`removed-${person.account_id}`}
-                      disabled={readdMember.isPending}
-                      onClick={() => readdMember.mutate(person.account_id)}
-                    >
-                      Add back
-                    </Button>
-                  </li>
+              <ul aria-labelledby="whos-in" className="divide-y divide-border">
+                {members.map((member) => (
+                  <MemberRow
+                    key={member.account_id}
+                    member={member}
+                    entering={entered.has(member.account_id)}
+                    canRemove={isOrganiser}
+                    armedId={remove.armed}
+                    onArm={remove.arm}
+                    onDisarm={remove.disarm}
+                    onRemove={(accountId) => removeMember.mutate(accountId)}
+                    removing={removeMember.isPending}
+                  />
                 ))}
               </ul>
-            </Card>
-          )}
-          {!isOrganiser && (
-            <div className="order-6 md:order-none">
-              {leave.armed === null ? (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  onClick={() => leave.arm(true)}
-                >
-                  Leave trip
-                </Button>
-              ) : (
-                <div className="flex flex-col gap-2">
-                  <p className="text-base font-semibold">Leave {name}?</p>
-                  <p className="text-sm text-muted-foreground">
-                    You'll need a new invite to come back.
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    <Button
-                      type="button"
-                      variant="destructive"
-                      disabled={leaveTrip.isPending}
-                      aria-busy={leaveTrip.isPending}
-                      onClick={() => leaveTrip.mutate()}
-                    >
-                      {leaveTrip.isPending && <Spinner />}
-                      Leave trip
-                    </Button>
-                    <Button
-                      type="button"
-                      variant="ghost"
-                      onClick={leave.disarm}
-                    >
-                      Stay in trip
-                    </Button>
-                  </div>
-                </div>
+              {(lastRemoved !== null || members.length === 1) && (
+                <CardContent className="flex flex-col gap-4">
+                  {lastRemoved !== null && (
+                    <p className="text-sm text-muted-foreground">
+                      {lastRemoved} can't rejoin from the invite link unless you
+                      add them back.
+                    </p>
+                  )}
+                  {members.length === 1 && (
+                    <EmptyState
+                      as="h3"
+                      title="Just you so far. Send the invite!"
+                      description="Copy the invite and drop it in your group chat."
+                    />
+                  )}
+                </CardContent>
               )}
+            </Card>
+            {isOrganiser && removed.length > 0 && (
+              <Card className="xl:col-start-1">
+                <CardHeader>
+                  <h2 id="removed" className={HEADING}>
+                    Removed
+                  </h2>
+                </CardHeader>
+                <ul
+                  aria-labelledby="removed"
+                  className="divide-y divide-border"
+                >
+                  {removed.map((person) => (
+                    <li
+                      key={person.account_id}
+                      className="flex min-h-14 items-center gap-3 px-(--card-spacing) py-2"
+                    >
+                      <Avatar
+                        name={person.display_name}
+                        kind="initials"
+                        avatarKey={null}
+                      />
+                      <span
+                        id={`removed-${person.account_id}`}
+                        title={person.display_name}
+                        className="min-w-0 flex-1 truncate text-base font-semibold"
+                      >
+                        {person.display_name}
+                      </span>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        aria-describedby={`removed-${person.account_id}`}
+                        disabled={readdMember.isPending}
+                        onClick={() => readdMember.mutate(person.account_id)}
+                      >
+                        Add back
+                      </Button>
+                    </li>
+                  ))}
+                </ul>
+              </Card>
+            )}
+            {!isOrganiser && (
+              <div className="xl:col-start-1">
+                {leave.armed === null ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    onClick={() => leave.arm(true)}
+                  >
+                    Leave trip
+                  </Button>
+                ) : (
+                  <div className="flex flex-col gap-2">
+                    <p className="text-base font-semibold">Leave {name}?</p>
+                    <p className="text-sm text-muted-foreground">
+                      You'll need a new invite to come back.
+                    </p>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        type="button"
+                        variant="destructive"
+                        disabled={leaveTrip.isPending}
+                        aria-busy={leaveTrip.isPending}
+                        onClick={() => leaveTrip.mutate()}
+                      >
+                        {leaveTrip.isPending && <Spinner />}
+                        Leave trip
+                      </Button>
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        onClick={leave.disarm}
+                      >
+                        Stay in trip
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+            {isOrganiser && (
+              <div className="xl:col-start-2">
+                <DeleteWorkspace
+                  tripId={tripId}
+                  name={name}
+                  canDelete={trip.can_delete === true && members.length === 1}
+                />
+              </div>
+            )}
+          </div>
+        </section>
+        {view === 'trip' && (
+          <section
+            className="mx-auto w-full max-w-5xl space-y-6"
+            aria-label="Trip overview"
+          >
+            <div>
+              <h2 className="text-2xl font-semibold">
+                A little direction, a lot to look forward to.
+              </h2>
+              <p className="mt-2 text-sm text-muted-foreground">
+                Your group is here. Start with what each person wants from the
+                trip.
+              </p>
             </div>
-          )}
-        </div>
+            <div className="grid gap-5 lg:grid-cols-2">
+              <Card>
+                <CardHeader>
+                  <h3 className="font-semibold">The group</h3>
+                </CardHeader>
+                <CardContent>
+                  <p className="mb-4 text-sm text-muted-foreground">
+                    {members.map(shownName).join(', ')}
+                  </p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader>
+                  <h3 className="font-semibold">Trip details</h3>
+                </CardHeader>
+                <CardContent>
+                  <p className="text-sm text-muted-foreground">
+                    No dates or destination have been selected yet.
+                  </p>
+                  <p className="mt-2 text-sm text-muted-foreground">
+                    There are no bookings or recorded costs.
+                  </p>
+                </CardContent>
+              </Card>
+            </div>
+          </section>
+        )}
+        {(view === 'bookings' || view === 'splits') && (
+          <UpcomingView kind={view} />
+        )}
       </div>
-    </div>
+    </TripWorkspace>
   );
 }
 
@@ -625,6 +864,9 @@ export function TripPage() {
   if (trip.isError) {
     return (
       <div className="mx-auto w-full max-w-md p-4 pt-6">
+        <Button asChild variant="outline" className="mb-6">
+          <Link to="/">Back to all trips</Link>
+        </Button>
         <ErrorRetry onRetry={() => void trip.refetch()} />
       </div>
     );

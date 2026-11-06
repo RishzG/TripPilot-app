@@ -25,6 +25,8 @@ from trippilot.realtime.hub import TripHub
 from trippilot.realtime.listener import listener_dsn, run_listener
 from trippilot.settings import Settings, get_settings
 from trippilot.trips import router as trips_router
+from trippilot.trips.chat import router as chat_router
+from trippilot.trips.preferences import router as preferences_router
 from trippilot.web_static import default_dist_dir, mount_spa
 
 _PAYPAL_ORIGINS = (
@@ -104,6 +106,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(health.router)
     app.include_router(auth_router.router)
     app.include_router(trips_router.router)
+    app.include_router(chat_router)
+    app.include_router(preferences_router)
     app.include_router(payments_router.router)
     app.include_router(realtime_router.router)
     app.include_router(admin_router.router)

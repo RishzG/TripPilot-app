@@ -53,13 +53,15 @@ export function AppShell() {
         Skip to content
       </a>
       <SandboxBanner />
-      <header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-2 border-b border-border bg-background px-4 md:h-16 md:px-8">
-        <Logo />
-        <div className="flex items-center gap-2">
-          <DemoPersonaBadge />
-          <AccountMenu />
-        </div>
-      </header>
+      {!tripId && (
+        <header className="sticky top-0 z-40 flex h-14 items-center justify-between gap-2 border-b border-border bg-background px-4 md:h-16 md:px-8">
+          <Logo />
+          <div className="flex items-center gap-2">
+            <DemoPersonaBadge />
+            <AccountMenu />
+          </div>
+        </header>
+      )}
       <main
         id="main"
         tabIndex={-1}

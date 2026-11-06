@@ -23,6 +23,7 @@ from trippilot.trips.service import (
     TripSummary,
     TripView,
     create_trip,
+    delete_empty_trip,
     get_trip_view,
     leave_trip,
     list_trips,
@@ -46,6 +47,13 @@ class CreatedTrip(BaseModel):
 
     id: uuid.UUID
     name: str
+
+
+class DeletedTrip(BaseModel):
+    """JSON acknowledgement after deleting an organiser-only workspace."""
+
+    id: uuid.UUID
+    deleted: bool = True
 
 
 class InviteLink(BaseModel):
@@ -94,6 +102,16 @@ async def my_trips(account: CurrentAccount, db: DbSession) -> list[TripSummary]:
 async def open_trip(trip_id: uuid.UUID, account: CurrentAccount, db: DbSession) -> TripView:
     """Return the trip to its members; 404 for anyone else."""
     return await get_trip_view(db, trip_id, account)
+
+
+@router.delete('/api/trips/{trip_id}')
+async def delete_workspace(
+    trip_id: uuid.UUID, account: CurrentAccount, db: DbSession
+) -> DeletedTrip:
+    """Delete when no other active members remain; invalidate the invite too."""
+    await delete_empty_trip(db, trip_id, account)
+    await db.commit()
+    return DeletedTrip(id=trip_id)
 
 
 @router.get('/api/trips/{trip_id}/invite')

@@ -1,5 +1,10 @@
 # Milestone 01: one complete planning-and-replanning slice + payment feasibility
 
+**November 6, 2026:** implementation is now authorized by the user's explicit request. The earlier
+design-only restriction below is historical. Work has started with the group workspace's travel
+preferences; see [implementation progress](implementation-progress-2026-11-06.md). This does not
+claim the full milestone is delivered or resolve the payment decision gate.
+
 Prepared November 3, 2026. Status: proposed implementation specification. No application implementation or sandbox transfer has been performed as part of writing this document.
 
 Latest clarification: prior code is setup/sponsor experimentation only. No feature in this milestone is assumed implemented. The [from-zero feature map and architecture](feature-map-and-architecture.md) now governs build order and architecture; this document retains the detailed planning/replanning scenarios.

@@ -49,6 +49,17 @@ describe('useTripEvents', () => {
     expect(onlySource().url).toBe('/api/trips/trip-1/events');
   });
 
+  it.each(['message.created', 'open', 'member.removed'])(
+    'refreshes authorized chat history on %s',
+    (type) => {
+      const { invalidate } = setup('trip-1');
+      onlySource().emit(type);
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ['trip-messages', 'trip-1'],
+      });
+    },
+  );
+
   it.each(['member.joined', 'member.left', 'member.removed', 'trip.updated'])(
     'invalidates the trip query on %s',
     (type) => {
@@ -63,6 +74,17 @@ describe('useTripEvents', () => {
     onlySource().emit('open');
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['trip', 'trip-1'] });
   });
+
+  it.each(['preferences.updated', 'open'])(
+    'refreshes filtered preferences on %s',
+    (type) => {
+      const { invalidate } = setup('trip-1');
+      onlySource().emit(type);
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ['trip-preferences', 'trip-1'],
+      });
+    },
+  );
 
   it('invalidates when the tab becomes visible again, not when it hides', () => {
     const { invalidate } = setup('trip-1');
