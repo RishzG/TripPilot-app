@@ -17,6 +17,7 @@ verification. An unfinished feature is listed separately from a confirmed defect
 | UX-08 | Manage group was redundant in Trip overview | Removed overview and header management buttons; member context is read-only and management stays in Group | Browser check confirms no Manage group button in Trip overview |
 | REL-01 | Ambiguous message retries could duplicate discussion | UUID deduplication by sender/trip; different text with the same ID returns 409 | Concurrent API retries and browser simulation of a lost response after commit |
 | PRIV-01 | New cached feature data could survive a demo-persona switch | Added preference/chat keys to the existing signed-in-state reset | Account-cache tests and membership/privacy checks |
+| CI-01 | Native Biome rejected unused effect dependencies in the workspace and composer | Workspace explicitly compares the previous view before resetting scroll; composer uses draft content to reset its empty height while preserving auto-growth | Native Biome CLI, TypeScript, frontend tests and build; the earlier WASM-only check missed these diagnostics |
 
 ## Open issues and limitations
 
@@ -43,9 +44,10 @@ verification. An unfinished feature is listed separately from a confirmed defect
 | Migration chain | One Alembic head: `0006_trip_messages`; fresh test-database upgrade exercised by integration tests |
 | Production frontend build | Passed, with the bundle-size advisory above |
 
-Local Python validation used PostgreSQL 18; repository CI uses PostgreSQL 16. Biome 2.6.3 was
-run through its supported WebAssembly API because Windows Application Control blocked the native
-binary. This did not change the repository dependencies or disable a security control.
+Local Python validation used PostgreSQL 18; repository CI uses PostgreSQL 16. The original
+Biome 2.6.3 validation used the WebAssembly API when Windows blocked the native binary, but that
+check missed two effect-dependency errors subsequently reported by CI. The correction was
+validated with the native CLI using the exact `npm --prefix web run lint` command from CI.
 
 These are local results. The existing CI workflow triggers on main pushes and pull requests, so
 pushing a feature branch alone does not establish a new remote CI result. No production release

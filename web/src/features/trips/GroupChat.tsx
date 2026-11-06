@@ -131,7 +131,11 @@ export function GroupChat({
     const field = composer.current;
     if (!field || !active) return;
     field.style.height = 'auto';
-    field.style.height = `${Math.max(52, Math.min(field.scrollHeight, 120))}px`;
+    const height =
+      content.length === 0
+        ? 52
+        : Math.max(52, Math.min(field.scrollHeight, 120));
+    field.style.height = `${height}px`;
   }, [content, active]);
   const attempt = useRef<{ content: string; client_message_id: string } | null>(
     null,

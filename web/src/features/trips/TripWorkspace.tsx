@@ -58,8 +58,11 @@ export function TripWorkspace({
 }) {
   const me = useMe();
   const content = useRef<HTMLDivElement>(null);
+  const previousView = useRef(view);
   useEffect(() => {
+    if (previousView.current === view) return;
     content.current?.scrollTo?.({ top: 0 });
+    previousView.current = view;
   }, [view]);
   const active = NAVIGATION.find((item) => item.view === view);
   return (
