@@ -1,5 +1,13 @@
 # TripPilot planning archive
 
+**Implementation started November 6, 2026.** The user authorized implementing this plan in
+`D:/Projects/TripPilot`, now checked out from `RishzG/TripPilot-app`. Earlier design-only and
+repository-location notes below describe the archived discussion. Current delivery status and
+verification are tracked in [docs/progress](../progress/README.md). The earlier
+[implementation log](implementation-progress-2026-11-06.md) remains as history.
+The [November 5 foundation assessment](phase-1-progress-2026-11-05.md) describes the existing code.
+Payment alternatives still require discussion; implementation authorization does not select one.
+
 Saved November 3, 2026 (America/Chicago). This archive preserves the discussion so it can be continued without relying on chat history. It is a working specification, not a finalized implementation contract.
 
 **Latest baseline:** design the product from zero. The user clarified that previous code was only for testing setup and sponsors. No product implementation is credited as complete. Start with [the feature implementation map and project architecture](feature-map-and-architecture.md); it supersedes earlier assumptions about reusing existing foundations.

@@ -7,6 +7,7 @@ export const TRIP_EVENT_TYPES = [
   'member.left',
   'member.removed',
   'trip.updated',
+  'preferences.updated',
 ] as const;
 
 /**
@@ -26,11 +27,21 @@ export function useTripEvents(tripId: string): void {
     }
     const refresh = () => {
       void queryClient.invalidateQueries({ queryKey: ['trip', tripId] });
+      void queryClient.invalidateQueries({
+        queryKey: ['trip-preferences', tripId],
+      });
+      refreshMessages();
+    };
+    const refreshMessages = () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['trip-messages', tripId],
+      });
     };
     const source = new EventSource(
       `/api/trips/${encodeURIComponent(tripId)}/events`,
     );
     source.addEventListener('open', refresh);
+    source.addEventListener('message.created', refreshMessages);
     for (const type of TRIP_EVENT_TYPES) {
       source.addEventListener(type, refresh);
     }

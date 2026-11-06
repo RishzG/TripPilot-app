@@ -1,5 +1,10 @@
 # TripPilot: feature implementation map and project architecture
 
+**Implementation authorization (November 6, 2026):** the user asked to begin this recorded plan.
+Use the current teammate-repository checkout and verify existing foundations rather than reset
+them. The from-zero note below records the original planning baseline, not a requirement to
+discard working code. See [implementation progress](implementation-progress-2026-11-06.md).
+
 Prepared November 3, 2026. **Current planning baseline: design from zero.** All previous application work is treated as setup/sponsor experiments. No product feature, integration, migration, deployed service, or test is assumed complete or reusable. Preserve the old files as history; do not delete/reset code as part of planning.
 
 This document supersedes earlier reuse/progress assumptions. The user's product rules remain: desktop web demo, friend groups, Pilot-assisted discussion/planning/replanning, leader-completed shared external checkout, US/USD internal PayPal ambition, individual payment approval, and explicit affected-member agreement for financial changes. Work remains technical design only.
