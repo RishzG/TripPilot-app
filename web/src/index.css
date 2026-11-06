@@ -19,9 +19,9 @@
   --card-foreground: #1c1917;
   --popover: #ffffff;
   --popover-foreground: #1c1917;
-  --primary: #c2410c;
+  --primary: #bf4f3f;
   --primary-foreground: #ffffff;
-  --primary-hover: #9a3412;
+  --primary-hover: #a83e30;
   --secondary: #f5ede4;
   --secondary-foreground: #1c1917;
   --muted: #f5ede4;
@@ -31,7 +31,7 @@
   --border: #e7d9ca;
   /* form control border; 4.63:1 on background (>= 3:1 non-text) */
   --input: #78716c;
-  --ring: #c2410c;
+  --ring: #bf4f3f;
   --destructive: #b91c1c;
   --destructive-foreground: #ffffff;
   /* money moments only: save-PayPal banner, PayPal saved badge, amount columns */

@@ -8,7 +8,11 @@ describe('forgetSignedInState', () => {
     queryClient.setQueryData(['invite-link', 'trip-1'], { url: 'https://x/y' });
     queryClient.setQueryData(['trips'], []);
     queryClient.setQueryData(['trip', 'trip-1'], { id: 'trip-1' });
+    queryClient.setQueryData(['trip-preferences', 'trip-1'], {
+      mine: { budget_cents: 12345 },
+    });
     queryClient.setQueryData(['vault-status'], { saved: true });
+    queryClient.setQueryData(['trip-messages', 'trip-1'], { pages: [] });
 
     forgetSignedInState(queryClient);
 
@@ -16,7 +20,13 @@ describe('forgetSignedInState', () => {
     expect(queryClient.getQueryData(['invite-link', 'trip-1'])).toBeUndefined();
     expect(queryClient.getQueryData(['trips'])).toBeUndefined();
     expect(queryClient.getQueryData(['trip', 'trip-1'])).toBeUndefined();
+    expect(
+      queryClient.getQueryData(['trip-preferences', 'trip-1']),
+    ).toBeUndefined();
     expect(queryClient.getQueryData(['vault-status'])).toBeUndefined();
+    expect(
+      queryClient.getQueryData(['trip-messages', 'trip-1']),
+    ).toBeUndefined();
   });
 
   it('keeps data that is not about the visitor', () => {

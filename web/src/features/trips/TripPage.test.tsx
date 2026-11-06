@@ -17,7 +17,7 @@ import { TripPage } from './TripPage';
 
 vi.mock('../../lib/api', async (importOriginal) => {
   const actual = await importOriginal<typeof import('../../lib/api')>();
-  return { ...actual, api: { GET: vi.fn(), POST: vi.fn() } };
+  return { ...actual, api: { GET: vi.fn(), POST: vi.fn(), DELETE: vi.fn() } };
 });
 vi.mock('sonner', () => ({ toast: vi.fn() }));
 
@@ -44,6 +44,7 @@ vi.mock('../paypal/SavePayPalButton', () => ({
 
 const get = api.GET as unknown as Mock;
 const post = api.POST as unknown as Mock;
+const deleteTrip = api.DELETE as unknown as Mock;
 
 interface Reply {
   status: number;
@@ -80,6 +81,7 @@ const ORGANISER_TRIP = {
   name: 'Tahoe weekend',
   is_organiser: true,
   joining_closed: false,
+  can_delete: false,
   members: [
     {
       account_id: 'a1',
@@ -108,11 +110,15 @@ const MEMBER_TRIP = {
 };
 
 const GET_ROUTES: Record<string, Reply> = {
+  '/api/trips/{trip_id}/messages': {
+    status: 200,
+    data: { messages: [], older_cursor: null },
+  },
   '/api/trips/{trip_id}': { status: 200, data: ORGANISER_TRIP },
   '/api/trips/{trip_id}/invite': { status: 200, data: { url: INVITE_URL } },
 };
 
-function renderTrip() {
+function renderTrip(view = 'group') {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
@@ -121,7 +127,7 @@ function renderTrip() {
       { path: '/trips/:tripId', element: <TripPage /> },
       { path: '/', element: <p>My trips home</p> },
     ],
-    { initialEntries: ['/trips/trip-1'] },
+    { initialEntries: [`/trips/trip-1?view=${view}`] },
   );
   render(
     <QueryClientProvider client={queryClient}>
@@ -134,6 +140,84 @@ function renderTrip() {
 function trip(overrides: Partial<typeof ORGANISER_TRIP>) {
   return { status: 200, data: { ...ORGANISER_TRIP, ...overrides } };
 }
+
+describe('delete empty workspace', () => {
+  beforeEach(() => {
+    get.mockReset();
+    post.mockReset();
+    deleteTrip.mockReset();
+  });
+
+  function serveEmpty(canDelete = true) {
+    serve(get, {
+      ...GET_ROUTES,
+      '/api/trips/{trip_id}': trip({
+        members: ORGANISER_TRIP.members.slice(0, 1),
+        can_delete: canDelete,
+      }),
+    });
+  }
+
+  it('requires explicit confirmation, permits cancelling, and returns home after deletion', async () => {
+    serveEmpty();
+    deleteTrip.mockResolvedValue(
+      answer({ status: 200, data: { id: 'trip-1', deleted: true } }),
+    );
+    renderTrip();
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Delete workspace',
+      }),
+    );
+    expect(deleteTrip).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Keep workspace' }));
+    expect(deleteTrip).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Delete workspace' }));
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Yes, delete workspace' }),
+    );
+    await screen.findByText('My trips home');
+    expect(deleteTrip).toHaveBeenCalledWith('/api/trips/{trip_id}', {
+      params: { path: { trip_id: 'trip-1' } },
+    });
+  });
+
+  it('keeps deletion visible but disabled while other members remain active', async () => {
+    serveEmpty(false);
+    renderTrip();
+    await screen.findByRole('heading', { level: 1, name: 'Tahoe weekend' });
+    expect(
+      (
+        screen.getByRole('button', {
+          name: 'Delete workspace',
+        }) as HTMLButtonElement
+      ).disabled,
+    ).toBe(true);
+    expect(
+      screen.getByText(
+        'All other members must leave or be removed before you can delete this workspace.',
+      ),
+    ).toBeTruthy();
+  });
+
+  it('shows a conflict if someone joins while the confirmation is open', async () => {
+    serveEmpty();
+    deleteTrip.mockResolvedValue(answer({ status: 409, data: {} }));
+    renderTrip();
+    fireEvent.click(
+      await screen.findByRole('button', {
+        name: 'Delete workspace',
+      }),
+    );
+    fireEvent.click(
+      screen.getByRole('button', { name: 'Yes, delete workspace' }),
+    );
+    await screen.findByText(
+      'Other active members must leave or be removed before deleting this workspace.',
+    );
+    expect(screen.queryByText('My trips home')).toBeNull();
+  });
+});
 
 describe('TripPage basics', () => {
   beforeEach(() => {
@@ -185,7 +269,7 @@ describe('TripPage basics', () => {
 
   it('shows the plan placeholder card in its empty state', async () => {
     serve(get, GET_ROUTES);
-    renderTrip();
+    renderTrip('plan');
     expect(
       await screen.findByText(
         'Your plan will appear here once the group starts planning',
@@ -547,6 +631,16 @@ describe('TripPage live updates', () => {
           : ORGANISER_TRIP.members;
         return answer({ status: 200, data: { ...ORGANISER_TRIP, members } });
       }
+      if (path === '/api/trips/{trip_id}/preferences') {
+        return answer({ status: 200, data: { mine: {}, members: [] } });
+      }
+      if (path === '/api/trips/{trip_id}/messages') {
+        return answer({
+          status: 200,
+          data: { messages: [], older_cursor: null },
+        });
+      }
+      if (path === '/api/me') return answer({ status: 401, data: {} });
       return answer({ status: 200, data: { url: INVITE_URL } });
     });
     renderTrip();

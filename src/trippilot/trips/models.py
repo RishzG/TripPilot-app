@@ -5,7 +5,16 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, LargeBinary, Text, text
+from sqlalchemy import (
+    BigInteger,
+    DateTime,
+    ForeignKey,
+    ForeignKeyConstraint,
+    Integer,
+    LargeBinary,
+    Text,
+    text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -62,3 +71,44 @@ class Invite(Base):
     token_hash: Mapped[bytes] = mapped_column(LargeBinary, unique=True)
     created_at: Mapped[datetime] = mapped_column(server_default=text('now()'))
     revoked_at: Mapped[datetime | None]
+
+
+class TravelProfile(Base):
+    """One membership's preferences; budget and diet are owner-only API fields."""
+
+    __tablename__ = 'travel_profiles'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['trip_id', 'account_id'], ['members.trip_id', 'members.account_id'], ondelete='CASCADE'
+        ),
+    )
+
+    trip_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True)
+    origin: Mapped[str] = mapped_column(Text, server_default='')
+    interests: Mapped[str] = mapped_column(Text, server_default='')
+    pace: Mapped[str] = mapped_column(Text, server_default='balanced')
+    budget_cents: Mapped[int | None] = mapped_column(Integer)
+    dietary_notes: Mapped[str] = mapped_column(Text, server_default='')
+    updated_at: Mapped[datetime] = mapped_column(server_default=text('now()'))
+
+
+class TripMessage(Base):
+    """An immutable public group message; the author's name is captured when sent."""
+
+    __tablename__ = 'trip_messages'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['trip_id', 'account_id'], ['members.trip_id', 'members.account_id'], ondelete='CASCADE'
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    trip_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    client_message_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    author_name: Mapped[str] = mapped_column(Text)
+    content: Mapped[str] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text('now()')
+    )

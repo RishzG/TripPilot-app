@@ -62,6 +62,7 @@ class TripView(BaseModel):
     name: str = Field(min_length=1, max_length=TRIP_NAME_MAX_LENGTH)
     is_organiser: bool
     joining_closed: bool
+    can_delete: bool = False
     members: list[MemberView]
     removed_members: list[RemovedMemberView] | None = None
 
@@ -147,6 +148,7 @@ async def get_trip_view(db: AsyncSession, trip_id: uuid.UUID, account: Account) 
         name=trip.name,
         is_organiser=is_organiser,
         joining_closed=trip.joining_closed,
+        can_delete=is_organiser and not await has_other_members(db, trip_id, account.id),
         removed_members=await _removed_members(db, trip_id) if is_organiser else None,
         members=[
             MemberView(
@@ -185,6 +187,32 @@ async def count_active_members(db: AsyncSession, trip_id: uuid.UUID) -> int:
         .where(Member.trip_id == trip_id, Member.status == ACTIVE_STATUS)
     )
     return int(result.scalar_one())
+
+
+async def has_other_members(db: AsyncSession, trip_id: uuid.UUID, organiser_id: uuid.UUID) -> bool:
+    """Only active members block deletion; left and removed memberships do not."""
+    count = await db.scalar(
+        select(func.count())
+        .select_from(Member)
+        .where(
+            Member.trip_id == trip_id,
+            Member.account_id != organiser_id,
+            Member.status == ACTIVE_STATUS,
+        )
+    )
+    return bool(count)
+
+
+async def delete_empty_trip(db: AsyncSession, trip_id: uuid.UUID, account: Account) -> None:
+    """Delete when only the organiser remains active, serialized against joins and readds."""
+    trip = await require_organiser_trip(db, trip_id, account, lock=True)
+    if await has_other_members(db, trip_id, account.id):
+        raise HTTPException(
+            status.HTTP_409_CONFLICT,
+            'Other active members must leave or be removed before deleting this workspace',
+        )
+    await db.delete(trip)
+    await db.flush()
 
 
 async def require_organiser_trip(
