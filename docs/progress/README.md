@@ -8,6 +8,7 @@ When a concept differs from a later explicit user decision, the later decision w
 - [Bugs and verification](bugs-and-verification.md): reported issues, fixes, open limitations and test evidence.
 - [Parallel work streams](parallel-workstreams.md): independent teammate tasks, ownership and integration dependencies.
 - [Manual testing](manual-testing.md): how to exercise the current desktop app.
+- [Shared style guide](../style-guide.md): theme tokens, UI conventions and how to make visual changes.
 
 ## Current milestone
 
