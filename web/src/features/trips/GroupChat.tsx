@@ -29,10 +29,12 @@ const MAX_LENGTH = 4000;
 /** Keep the reader's place on older-page loads; follow new messages only near the bottom. */
 function MessageList({
   messages,
+  viewerId,
   fill,
   active,
 }: {
   messages: Message[];
+  viewerId: string | undefined;
   fill: boolean;
   active: boolean;
 }) {
@@ -74,40 +76,63 @@ function MessageList({
           target.scrollHeight - target.clientHeight - target.scrollTop < 64;
       }}
     >
-      {messages.map((message) => (
-        <li
-          key={message.id}
-          className="grid min-w-0 grid-cols-[32px_minmax(0,1fr)] items-start gap-2.5 py-3 first:pt-0 last:pb-0"
-        >
-          <Avatar
-            name={message.author_name}
-            kind="initials"
-            avatarKey={null}
-            size={32}
-          />
-          <div className="min-w-0 max-w-[75ch]">
-            <div className="flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1">
-              <span className="break-words font-semibold">
-                {message.author_name}
-              </span>
-              <time
-                dateTime={message.created_at}
-                className="text-xs text-muted-foreground"
+      {messages.map((message) => {
+        const own = message.account_id === viewerId;
+        return (
+          <li
+            key={message.id}
+            className={cn(
+              'flex min-w-0 items-start gap-2.5 py-3 first:pt-0 last:pb-0',
+              own && 'flex-row-reverse',
+            )}
+          >
+            <Avatar
+              name={message.author_name}
+              kind="initials"
+              avatarKey={null}
+              size={32}
+            />
+            <div
+              className={cn(
+                'flex min-w-0 max-w-[75ch] flex-col',
+                own ? 'items-end' : 'items-start',
+              )}
+            >
+              <div
+                className={cn(
+                  'flex flex-wrap items-baseline gap-x-3 gap-y-1',
+                  own && 'justify-end',
+                )}
               >
-                {new Date(message.created_at).toLocaleString(undefined, {
-                  month: 'short',
-                  day: 'numeric',
-                  hour: 'numeric',
-                  minute: '2-digit',
-                })}
-              </time>
+                <span className="break-words font-semibold">
+                  {own ? 'You' : message.author_name}
+                </span>
+                <time
+                  dateTime={message.created_at}
+                  className="text-xs text-muted-foreground"
+                >
+                  {new Date(message.created_at).toLocaleString(undefined, {
+                    month: 'short',
+                    day: 'numeric',
+                    hour: 'numeric',
+                    minute: '2-digit',
+                  })}
+                </time>
+              </div>
+              <p
+                className={cn(
+                  'mt-1.5 w-fit max-w-full rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
+                  own
+                    ? 'rounded-tr-sm bg-primary/10'
+                    : 'rounded-tl-sm bg-muted/70',
+                )}
+              >
+                {message.content}
+              </p>
             </div>
-            <p className="mt-1.5 w-fit max-w-full rounded-xl rounded-tl-sm bg-muted/70 px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
-              {message.content}
-            </p>
-          </div>
-        </li>
-      ))}
+          </li>
+        );
+      })}
     </ul>
   );
 }
@@ -118,11 +143,13 @@ function MessageList({
  */
 export function GroupChat({
   tripId,
+  viewerId,
   fill = false,
   active = true,
   onShareConcern,
 }: {
   tripId: string;
+  viewerId: string | undefined;
   fill?: boolean;
   active?: boolean;
   onShareConcern?: () => void;
@@ -276,7 +303,12 @@ export function GroupChat({
               </Button>
             )}
             {messages.length ? (
-              <MessageList messages={messages} fill={fill} active={active} />
+              <MessageList
+                messages={messages}
+                viewerId={viewerId}
+                fill={fill}
+                active={active}
+              />
             ) : (
               <div
                 className={cn(

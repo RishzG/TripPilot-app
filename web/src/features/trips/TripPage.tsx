@@ -438,6 +438,7 @@ function TripContent({
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const viewerId = useMe().data?.id;
   const chatWorkspace = useRef<HTMLElement>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const rawView = searchParams.get('view');
@@ -609,6 +610,7 @@ function TripContent({
               <GroupChat
                 key={`chat-${tripId}`}
                 tripId={tripId}
+                viewerId={viewerId}
                 fill
                 active={view === 'chat'}
                 onShareConcern={shareConcern}

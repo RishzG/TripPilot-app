@@ -42,7 +42,7 @@ function show(props: Partial<ComponentProps<typeof GroupChat>> = {}) {
   });
   render(
     <QueryClientProvider client={client}>
-      <GroupChat tripId="trip-1" {...props} />
+      <GroupChat tripId="trip-1" viewerId="a1" {...props} />
     </QueryClientProvider>,
   );
   return client;
