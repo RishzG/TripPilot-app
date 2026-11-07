@@ -1,9 +1,10 @@
-"""ORM models for the trip tables: trips and members (0001), invites (0003), concerns (0007)."""
+"""ORM models for the trip tables: trips and members (0001), invites, chat, concerns and plans."""
 
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -15,7 +16,7 @@ from sqlalchemy import (
     Text,
     text,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
 from trippilot.db.base import Base
@@ -136,3 +137,19 @@ class PrivateConcern(Base):
         DateTime(timezone=True), server_default=text('now()')
     )
     withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+
+class PlanVersion(Base):
+    """One append-only draft with its original participant names and allocations."""
+
+    __tablename__ = 'plan_versions'
+
+    trip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey('trips.id', ondelete='CASCADE'), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    request_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    snapshot: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text('now()')
+    )

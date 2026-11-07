@@ -18,11 +18,11 @@ import { ApiError, api, unwrap } from '../../lib/api';
 import type { components } from '../../lib/api-types';
 import { useMe } from '../auth/useMe';
 import { SavePayPalButton } from '../paypal/SavePayPalButton';
+import { ItineraryPanel } from '../planning/ItineraryPanel';
 import { GroupChat } from './GroupChat';
 import { PrivateConcernsTile, useConcernsTileOpen } from './PrivateConcerns';
 import { TravelPreferencesPanel } from './TravelPreferencesPanel';
 import {
-  EmptyPlan,
   TripWorkspace,
   UpcomingView,
   WORKSPACE_VIEWS,
@@ -284,6 +284,7 @@ function DeleteWorkspace({
       ]) {
         queryClient.removeQueries({ queryKey: [key, tripId], exact: true });
       }
+      queryClient.removeQueries({ queryKey: ['trip-plan', tripId] });
       queryClient.removeQueries({ queryKey: ['trips'] });
     },
   });
@@ -295,8 +296,8 @@ function DeleteWorkspace({
             <h2 className="font-semibold">Delete {name}?</h2>
             <p className="text-sm text-muted-foreground">
               This permanently deletes the workspace, its messages, trip
-              preferences and invite link. All other members must have left or
-              been removed.
+              preferences, itinerary drafts and invite link. All other members
+              must have left or been removed.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -563,6 +564,7 @@ function TripContent({
       ),
     onSuccess: () => {
       navigate('/');
+      queryClient.removeQueries({ queryKey: ['trip-plan', tripId] });
       queryClient.removeQueries({ queryKey: ['trips'] });
       queryClient.removeQueries({ queryKey: ['trip', tripId], exact: true });
     },
@@ -622,7 +624,13 @@ function TripContent({
         </div>
         {view === 'plan' && (
           <div className="mx-auto min-h-0 w-full max-w-7xl flex-1">
-            <EmptyPlan onNavigate={changeView} />
+            <ItineraryPanel
+              key={tripId}
+              tripId={tripId}
+              members={members}
+              isOrganiser={isOrganiser}
+              onNavigate={changeView}
+            />
           </div>
         )}
         <section

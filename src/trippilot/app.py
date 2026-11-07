@@ -27,6 +27,7 @@ from trippilot.settings import Settings, get_settings
 from trippilot.trips import router as trips_router
 from trippilot.trips.chat import router as chat_router
 from trippilot.trips.concerns import router as concerns_router
+from trippilot.trips.plans import router as plans_router
 from trippilot.trips.preferences import router as preferences_router
 from trippilot.web_static import default_dist_dir, mount_spa
 
@@ -109,6 +110,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(trips_router.router)
     app.include_router(chat_router)
     app.include_router(concerns_router)
+    app.include_router(plans_router)
     app.include_router(preferences_router)
     app.include_router(payments_router.router)
     app.include_router(realtime_router.router)

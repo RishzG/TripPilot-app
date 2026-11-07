@@ -202,7 +202,7 @@ export function EmptyPlan({
     >
       <div className="flex items-center justify-between border-b border-border px-6 py-4">
         <span className="flex items-center gap-2 text-sm font-semibold">
-          <CalendarDays size={18} aria-hidden="true" /> Itinerary & map
+          <CalendarDays size={18} aria-hidden="true" /> Itinerary
         </span>
         <span className="text-xs text-muted-foreground">No itinerary yet</span>
       </div>
@@ -228,8 +228,8 @@ export function EmptyPlan({
           Your next adventure starts with a conversation.
         </h2>
         <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
-          Share your ideas in chat and add what matters to you. Your itinerary
-          and map will come together here.
+          Share your ideas in chat and add what matters to you. The organiser
+          can save an itinerary draft for the group.
         </p>
         <div className="mt-5 flex shrink-0 flex-wrap justify-center gap-3">
           <Button type="button" onClick={() => onNavigate('chat')}>
@@ -247,7 +247,7 @@ export function EmptyPlan({
       <div className="mx-6 mb-4 shrink-0 rounded-xl bg-muted/60 px-4 py-3 text-[11px] leading-relaxed text-muted-foreground">
         <p>Your plan will appear here once the group starts planning</p>
         <div className="mt-1 flex flex-wrap justify-between gap-1">
-          <span>Plan generation is coming next.</span>
+          <span>Drafts include estimated costs.</span>
           <span>Nobody pays anything yet.</span>
         </div>
       </div>

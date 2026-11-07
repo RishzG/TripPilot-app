@@ -32,6 +32,7 @@ export function useTripEvents(tripId: string): void {
       });
       refreshMessages();
       refreshConcerns();
+      refreshPlan();
     };
     const refreshMessages = () => {
       void queryClient.invalidateQueries({
@@ -44,12 +45,18 @@ export function useTripEvents(tripId: string): void {
         queryKey: ['trip-concerns', tripId],
       });
     };
+    const refreshPlan = () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['trip-plan', tripId, 'latest'],
+      });
+    };
     const source = new EventSource(
       `/api/trips/${encodeURIComponent(tripId)}/events`,
     );
     source.addEventListener('open', refresh);
     source.addEventListener('message.created', refreshMessages);
     source.addEventListener('concerns.changed', refreshConcerns);
+    source.addEventListener('plan.version_created', refreshPlan);
     for (const type of TRIP_EVENT_TYPES) {
       source.addEventListener(type, refresh);
     }
