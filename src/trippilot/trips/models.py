@@ -1,4 +1,4 @@
-"""ORM models for the trip tables: trips and members (0001), invites (0003)."""
+"""ORM models for the trip tables: trips and members (0001), invites (0003), concerns (0007)."""
 
 from __future__ import annotations
 
@@ -112,3 +112,27 @@ class TripMessage(Base):
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=text('now()')
     )
+
+
+class PrivateConcern(Base):
+    """A member's private concern. Withdrawing erases the text but keeps the row's key.
+
+    The tombstone stops a delayed retry of the original create from bringing the text back.
+    """
+
+    __tablename__ = 'private_concerns'
+    __table_args__ = (
+        ForeignKeyConstraint(
+            ['trip_id', 'account_id'], ['members.trip_id', 'members.account_id'], ondelete='CASCADE'
+        ),
+    )
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True, autoincrement=True)
+    trip_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    account_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    client_concern_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    content: Mapped[str | None] = mapped_column(Text)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=text('now()')
+    )
+    withdrawn_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
