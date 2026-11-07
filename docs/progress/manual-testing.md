@@ -72,9 +72,11 @@ for Sam. Two normal tabs share the same sign-in cookie. Create disposable test t
    become enabled for the organiser without refreshing. If any other active member remains,
    it must stay disabled. Re-adding a member blocks deletion again.
 
-Scope: public chat, preferences, membership and workspace UX. Private concerns, a working Pilot,
-plans/maps, booking and money features are not yet implemented. `/plan` typed into chat remains
-ordinary text.
+Scope: public chat, preferences, membership, workspace UX and private concerns. Private concerns
+have their own checklist:
+[manual test: private concerns](../planning/manual-test-private-concerns.md).
+A working Pilot, plans/maps, booking and money features are not yet implemented. `/plan` typed
+into chat remains ordinary text.
 
 For a fresh local stack, the existing `docker compose up --build` recipe starts PostgreSQL,
 the app and the worker with demo mode and fake payments. The desktop browser suite runs with

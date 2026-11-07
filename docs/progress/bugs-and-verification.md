@@ -15,6 +15,7 @@ verification. An unfinished feature is listed separately from a confirmed defect
 | UX-06 | Stacked cards did not resemble the desktop workspace concepts | Added persistent rail/header and separate workspace views; moved invites/membership/deletion into Group | Desktop navigation, keyboard and draft-preservation checks |
 | UX-07 | Chat history looked squeezed and Chat/Plan looked almost identical | Chat is now the default dedicated conversation view; Plan is separate. Composer is compact, grows to a bounded height, and has inline Send | Desktop checks require a wide chat and message history exceeding 55% of the panel height |
 | UX-08 | Manage group was redundant in Trip overview | Removed overview and header management buttons; member context is read-only and management stays in Group | Browser check confirms no Manage group button in Trip overview |
+| UX-09 | Private concerns lived on a separate page that was hard to reach, and the leader's own concerns also showed in the anonymous list | Concerns are a collapsible tile beside Chat (collapse remembered per browser, old `?view=concerns` links open Chat with it open); lists are newest first and scroll inside the tile; the leader's own concerns appear only under Your concerns, apart from From the group (anonymous) | Integration tests (own rows excluded from `anonymous`, newest first), unit tests, and desktop e2e at 1366 x 768 and 1920 x 1080 |
 | REL-01 | Ambiguous message retries could duplicate discussion | UUID deduplication by sender/trip; different text with the same ID returns 409 | Concurrent API retries and browser simulation of a lost response after commit |
 | PRIV-01 | New cached feature data could survive a demo-persona switch | Added preference/chat keys to the existing signed-in-state reset | Account-cache tests and membership/privacy checks |
 | CI-01 | Native Biome rejected unused effect dependencies in the workspace and composer | Workspace explicitly compares the previous view before resetting scroll; composer uses draft content to reset its empty height while preserving auto-growth | Native Biome CLI, TypeScript, frontend tests and build; the earlier WASM-only check missed these diagnostics |
@@ -23,7 +24,7 @@ verification. An unfinished feature is listed separately from a confirmed defect
 
 | Item | Status / impact | Next owner |
 | --- | --- | --- |
-| Private concerns and Pilot request lifecycle | Not implemented; public chat is not a private channel or an AI invocation | Group-context / orchestration work streams |
+| Pilot request lifecycle | Not on main: a durable leader-only request that ends as Planner not connected yet is built and tested on branch `feat/stage-3-concerns-pilot-runs`, pending review. `/plan` in chat is ordinary text. Private concerns are delivered. | Pilot / orchestration work stream |
 | Planning, maps and dates | No plan model, selected dates/destination or working map provider; Plan is an honest empty state | Plan-domain and research work streams |
 | Intended contribution verification | Personal member-to-leader route remains unproven; existing business-account experiments do not resolve it | Payment feasibility owner |
 | Webhook reconciliation | Events are recorded, but full resource reconciliation/state transitions are absent | Payments owner, after agreed money design |
@@ -37,11 +38,11 @@ verification. An unfinished feature is listed separately from a confirmed defect
 
 | Check | Latest relevant result |
 | --- | --- |
-| Complete backend suite | 502 passed on the implemented backend; subsequent changes are frontend UX/docs only |
-| Complete frontend suite | 312 passed, including keyboard submission, privacy, cache invalidation, retry and navigation behavior |
-| Desktop browser suite | Eight cases at 1366 x 768 and 1920 x 1080 cover chat, preferences, membership/deletion and workspace layout |
+| Complete backend suite | 519 passed (`uv run pytest -q`) |
+| Complete frontend suite | 337 passed, including keyboard submission, privacy, cache invalidation, retry, navigation and the concerns tile |
+| Desktop browser suite | Ten cases at 1366 x 768 and 1920 x 1080 cover chat, preferences, membership/deletion, private concerns and workspace layout |
 | Type/static checks | Strict mypy, Ruff lint/format, TypeScript and Biome checks passed for the changes |
-| Migration chain | One Alembic head: `0006_trip_messages`; fresh test-database upgrade exercised by integration tests |
+| Migration chain | One Alembic head: `0007_private_concerns`; fresh test-database upgrade exercised by integration tests |
 | Production frontend build | Passed, with the bundle-size advisory above |
 
 Local Python validation used PostgreSQL 18; repository CI uses PostgreSQL 16. The original
