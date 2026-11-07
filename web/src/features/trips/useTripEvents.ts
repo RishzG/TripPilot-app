@@ -31,10 +31,17 @@ export function useTripEvents(tripId: string): void {
         queryKey: ['trip-preferences', tripId],
       });
       refreshMessages();
+      refreshConcerns();
     };
     const refreshMessages = () => {
       void queryClient.invalidateQueries({
         queryKey: ['trip-messages', tripId],
+      });
+    };
+    // Each viewer refetches their own projection; the events carry no private data.
+    const refreshConcerns = () => {
+      void queryClient.invalidateQueries({
+        queryKey: ['trip-concerns', tripId],
       });
     };
     const source = new EventSource(
@@ -42,6 +49,7 @@ export function useTripEvents(tripId: string): void {
     );
     source.addEventListener('open', refresh);
     source.addEventListener('message.created', refreshMessages);
+    source.addEventListener('concerns.changed', refreshConcerns);
     for (const type of TRIP_EVENT_TYPES) {
       source.addEventListener(type, refresh);
     }

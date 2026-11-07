@@ -19,6 +19,7 @@ import type { components } from '../../lib/api-types';
 import { useMe } from '../auth/useMe';
 import { SavePayPalButton } from '../paypal/SavePayPalButton';
 import { GroupChat } from './GroupChat';
+import { PrivateConcernsTile, useConcernsTileOpen } from './PrivateConcerns';
 import { TravelPreferencesPanel } from './TravelPreferencesPanel';
 import {
   EmptyPlan,
@@ -33,6 +34,8 @@ type TripData = components['schemas']['TripView'];
 type MemberData = components['schemas']['MemberView'];
 
 const CONFIRM_REVERT_MS = 6000;
+// Links from before the concerns tile existed opened a separate workspace view of this name.
+const LEGACY_CONCERNS_VIEW = 'concerns';
 const SUBMIT_FAILED_MESSAGE =
   "Couldn't save that. Nothing was changed, so try again.";
 
@@ -435,8 +438,11 @@ function TripContent({
   const navigate = useNavigate();
   const chatWorkspace = useRef<HTMLElement>(null);
   const [searchParams, setSearchParams] = useSearchParams();
-  const view =
-    WORKSPACE_VIEWS.find((item) => item === searchParams.get('view')) ?? 'chat';
+  const rawView = searchParams.get('view');
+  const view = WORKSPACE_VIEWS.find((item) => item === rawView) ?? 'chat';
+  const legacyConcerns = rawView === LEGACY_CONCERNS_VIEW;
+  const [concernsOpen, setConcernsOpen] = useConcernsTileOpen(legacyConcerns);
+  const [concernFocus, setConcernFocus] = useState(0);
   function changeView(next: WorkspaceView) {
     setSearchParams((current) => {
       const updated = new URLSearchParams(current);
@@ -451,6 +457,22 @@ function TripContent({
   useEffect(() => {
     if (view === 'chat') chatWorkspace.current?.focus({ preventScroll: true });
   }, [view]);
+  useEffect(() => {
+    if (!legacyConcerns) return;
+    setConcernsOpen(true);
+    setSearchParams(
+      (current) => {
+        const updated = new URLSearchParams(current);
+        updated.delete('view');
+        return updated;
+      },
+      { replace: true },
+    );
+  }, [legacyConcerns, setConcernsOpen, setSearchParams]);
+  function shareConcern() {
+    setConcernsOpen(true);
+    setConcernFocus((count) => count + 1);
+  }
   const remove = useArmed<string>();
   const leave = useArmed<true>();
   const [failed, setFailed] = useState(false);
@@ -568,24 +590,35 @@ function TripContent({
           hidden={view !== 'chat'}
           className={
             view === 'chat'
-              ? 'mx-auto min-h-0 w-full max-w-6xl flex-1'
+              ? 'mx-auto flex min-h-0 w-full max-w-7xl flex-1 flex-col gap-4 lg:flex-row'
               : 'hidden'
           }
         >
-          <section
-            id="group-chat"
-            ref={chatWorkspace}
-            tabIndex={-1}
-            aria-label="Group chat workspace"
-            className="h-full min-h-0 outline-none"
-          >
-            <GroupChat
-              key={`chat-${tripId}`}
-              tripId={tripId}
-              fill
-              active={view === 'chat'}
-            />
-          </section>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-3">
+            <section
+              id="group-chat"
+              ref={chatWorkspace}
+              tabIndex={-1}
+              aria-label="Group chat workspace"
+              className="min-h-0 flex-1 outline-none"
+            >
+              <GroupChat
+                key={`chat-${tripId}`}
+                tripId={tripId}
+                fill
+                active={view === 'chat'}
+                onShareConcern={shareConcern}
+              />
+            </section>
+          </div>
+          <PrivateConcernsTile
+            key={tripId}
+            tripId={tripId}
+            isOrganiser={isOrganiser}
+            open={concernsOpen}
+            onOpenChange={setConcernsOpen}
+            focusRequest={concernFocus}
+          />
         </div>
         {view === 'plan' && (
           <div className="mx-auto min-h-0 w-full max-w-7xl flex-1">

@@ -73,8 +73,12 @@ The trip workspace uses a 208px sidebar from `md` upward, a trip/member header a
 content area. Below `md`, navigation wraps and the shell also supplies mobile trip tabs. Preserve
 the shared sandbox banner, skip link and navigation when adding screens.
 
-Chat is the default trip view. Plan has its own itinerary/map view; Preferences and Group are
-separate views. Follow the current workspace rather than the older side-by-side concept.
+Chat is the default trip view, with a collapsible Private concerns tile to its right from the
+`lg` breakpoint (stacked below the chat on narrower screens). The tile collapses to a slim strip;
+that choice is remembered per browser under the `tp-concerns-tile` localStorage key (`open` or
+`collapsed`, never concern text). Lists inside tiles scroll within themselves rather than growing
+the page. Plan has its own itinerary/map view; Preferences and Group are separate views. Follow
+the current workspace rather than the older side-by-side concept.
 Use the shared EmptyState, ErrorRetry, SkeletonList and UI spinner/skeleton components for states.
 Keep unavailable features and demo content clearly labeled; do not imply successful booking or
 payment from a visual state alone.

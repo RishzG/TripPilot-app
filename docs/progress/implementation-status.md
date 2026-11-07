@@ -14,6 +14,7 @@ local verification, not a claim that the hosted demo is running the branch.
 | Travel preferences | Per-trip origin, interests, pace, optional USD budget in cents and dietary notes; save/reload/clear; exact decimal-to-cent input handling | `trips/preferences.py`, migration `0005_travel_profiles`, `TravelPreferencesPanel.tsx` |
 | Preference privacy | Only the owner receives budget/dietary fields; group projection allowlists origin/interests/pace; events contain no private values | Preference integration tests and desktop privacy checks |
 | Group chat | Persisted plain-text messages, captured author name and aware timestamp, 4,000-character limit, cursor-paginated history | `trips/chat.py`, migration `0006_trip_messages` |
+| Private concerns | Active members submit plain-text concerns (1-1,000 characters, 20 open each, retry-safe client UUID). The author sees and can withdraw their own; the leader sees other members' concerns as text and UTC date only, with no author identity or id (the leader's own appear only in their own list); other members see nothing. Lists are newest first and shown in a collapsible tile beside Chat. Withdrawing erases the text. `concerns.changed` events carry `{}` | `trips/concerns.py`, migration `0007_private_concerns`, `PrivateConcerns.tsx`, `test_private_concerns.py` |
 | Safe chat retries | Client UUID scoped to sender/trip, one row/event for concurrent retries, 409 for reusing an ID with different text; failed drafts retained | Chat API/UI tests; browser test discards a committed POST response and retries |
 | Live updates | Database event log, NOTIFY/LISTEN bridge and member-authorized SSE; refetch on reconnect/tab return; message events refresh chat | `realtime/`, `useTripEvents.ts` |
 | Workspace deletion | Organiser action remains visible; enabled only with no other active members. Left/removed members do not block it. Confirmation, race checks and JSON response | `delete_empty_trip`, deletion integration tests, desktop tests |
@@ -44,7 +45,7 @@ features. See [payment feasibility](../planning/payment-feasibility.md).
 | 0B · Travel data | Partial research/spikes | Usable search, place/route adapters, attribution, real coordinates and honest price freshness/availability |
 | 1 · Foundation | Existing foundation locally verified | Operational readiness and deployment evidence still need separate verification |
 | 2 · Group workspace | Partial | Trip editing, dates/timezone and broader preference controls remain; core membership and personal preferences work |
-| 3 · Conversation | Partial | Public chat works; private concerns and explicit durable Pilot requests are next |
+| 3 · Conversation | Partial | Public chat and private concerns work; the durable leader-only Pilot request lifecycle is built and tested on branch `feat/stage-3-concerns-pilot-runs` and is not on main yet |
 | 4 · Plan model / budget / map | Not implemented | Immutable versions/items, participation, deterministic share allocation, day view/map and budget projections |
 | 5–7 · Pilot / decisions / replanning | Not implemented | Bounded research/model runs, clarifying decisions, leader selection, revision diffs, affected-member acceptance, deadlines and opt-out recalculation |
 | 8–9 · Transport / bookings | Not implemented | Arrival arrangements, booking tasks, provider handoffs and private confirmation storage |
@@ -56,7 +57,7 @@ composer, no automatic booking, and no payment authorized by discussing or savin
 
 ## Data and deployment notes
 
-- The migration chain has one head: `0006_trip_messages`, following `0005_travel_profiles`.
+- The migration chain has one head: `0007_private_concerns`, following `0006_trip_messages`.
 - Deleting an eligible workspace cascades its membership-owned preferences/messages and invites.
   Existing append-only payment audit records are independent. Before introducing bookings or
   accounting, define their retention behavior explicitly rather than blindly extending cascades.

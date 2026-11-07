@@ -7,6 +7,7 @@ import {
   waitFor,
   within,
 } from '@testing-library/react';
+import type { ComponentProps } from 'react';
 import type { Mock } from 'vitest';
 import { api } from '@/lib/api';
 import type { components } from '@/lib/api-types';
@@ -35,13 +36,13 @@ function reply(data: unknown, ok = true) {
     response: { ok, status: ok ? 200 : 500 },
   };
 }
-function show() {
+function show(props: Partial<ComponentProps<typeof GroupChat>> = {}) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
-      <GroupChat tripId="trip-1" />
+      <GroupChat tripId="trip-1" {...props} />
     </QueryClientProvider>,
   );
   return client;
@@ -179,4 +180,23 @@ it('blocks repeated submits while a message is pending', async () => {
   expect((field as HTMLTextAreaElement).disabled).toBe(true);
   complete?.(reply({ ...sample, content: 'One message' }));
   await waitFor(() => expect((field as HTMLTextAreaElement).value).toBe(''));
+});
+
+it('sends /plan as an ordinary message', async () => {
+  show();
+  const field = (await screen.findByLabelText(
+    'Message the group',
+  )) as HTMLTextAreaElement;
+  fireEvent.change(field, { target: { value: '/plan' } });
+  fireEvent.click(screen.getByRole('button', { name: 'Send message' }));
+  await waitFor(() => expect(post).toHaveBeenCalledTimes(1));
+});
+
+it('offers the private concerns link when asked', async () => {
+  const share = vi.fn();
+  show({ onShareConcern: share });
+  fireEvent.click(
+    await screen.findByRole('button', { name: 'Share something privately' }),
+  );
+  expect(share).toHaveBeenCalledTimes(1);
 });
