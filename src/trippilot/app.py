@@ -30,6 +30,7 @@ from trippilot.trips.concerns import router as concerns_router
 from trippilot.trips.pilot import router as pilot_router
 from trippilot.trips.plans import router as plans_router
 from trippilot.trips.preferences import router as preferences_router
+from trippilot.trips.replanning import router as replanning_router
 from trippilot.web_static import default_dist_dir, mount_spa
 
 _PAYPAL_ORIGINS = (
@@ -113,6 +114,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(concerns_router)
     app.include_router(plans_router)
     app.include_router(pilot_router)
+    app.include_router(replanning_router)
     app.include_router(preferences_router)
     app.include_router(payments_router.router)
     app.include_router(realtime_router.router)

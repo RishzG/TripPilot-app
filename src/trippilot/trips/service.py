@@ -64,6 +64,7 @@ class TripView(BaseModel):
     is_organiser: bool
     joining_closed: bool
     can_delete: bool = False
+    current_plan_version: int | None = None
     planning_context: TripPlanningContext | None = None
     members: list[MemberView]
     removed_members: list[RemovedMemberView] | None = None
@@ -150,6 +151,7 @@ async def get_trip_view(db: AsyncSession, trip_id: uuid.UUID, account: Account) 
         name=trip.name,
         is_organiser=is_organiser,
         joining_closed=trip.joining_closed,
+        current_plan_version=trip.current_plan_version,
         planning_context=(
             TripPlanningContext.model_validate(trip.planning_context)
             if trip.planning_context is not None

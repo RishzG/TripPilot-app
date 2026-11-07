@@ -35,6 +35,7 @@ class Trip(Base):
         UUID(as_uuid=True), ForeignKey('accounts.id')
     )
     demo_mode: Mapped[bool] = mapped_column(server_default=text('false'))
+    current_plan_version: Mapped[int | None] = mapped_column(Integer)
     planning_context: Mapped[dict[str, Any] | None] = mapped_column(JSONB(none_as_null=True))
     joining_closed: Mapped[bool] = mapped_column(server_default=text('false'))
     created_at: Mapped[datetime] = mapped_column(server_default=text('now()'))
@@ -170,3 +171,21 @@ class PilotRun(Base):
     planning_context: Mapped[dict[str, Any]] = mapped_column(JSONB)
     draft_version: Mapped[int | None] = mapped_column(Integer)
     failure: Mapped[str | None] = mapped_column(Text)
+
+
+class ActivityProposal(Base):
+    """One replacement revision with fixed terms and revision-specific responses."""
+
+    __tablename__ = 'activity_proposals'
+
+    id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
+    trip_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey('trips.id', ondelete='CASCADE')
+    )
+    proposal_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True))
+    revision: Mapped[int] = mapped_column(Integer)
+    base_version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[str] = mapped_column(Text)
+    terms: Mapped[dict[str, Any]] = mapped_column(JSONB)
+    accepted: Mapped[list[str]] = mapped_column(JSONB, server_default=text("'[]'::jsonb"))
+    applied_version: Mapped[int | None] = mapped_column(Integer)

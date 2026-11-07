@@ -148,6 +148,7 @@ EXPECTED_COLUMNS: dict[str, set[str]] = {
         'demo_mode',
         'joining_closed',
         'planning_context',
+        'current_plan_version',
         'created_at',
     },
     'members': {'trip_id', 'account_id', 'role', 'status', 'joined_at'},

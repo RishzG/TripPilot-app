@@ -286,6 +286,7 @@ function DeleteWorkspace({
       }
       queryClient.removeQueries({ queryKey: ['trip-plan', tripId] });
       queryClient.removeQueries({ queryKey: ['trip-pilot', tripId] });
+      queryClient.removeQueries({ queryKey: ['trip-replanning', tripId] });
       queryClient.removeQueries({ queryKey: ['trips'] });
     },
   });
@@ -568,6 +569,7 @@ function TripContent({
       navigate('/');
       queryClient.removeQueries({ queryKey: ['trip-plan', tripId] });
       queryClient.removeQueries({ queryKey: ['trip-pilot', tripId] });
+      queryClient.removeQueries({ queryKey: ['trip-replanning', tripId] });
       queryClient.removeQueries({ queryKey: ['trips'] });
       queryClient.removeQueries({ queryKey: ['trip', tripId], exact: true });
     },
@@ -634,6 +636,8 @@ function TripContent({
               members={members}
               isOrganiser={isOrganiser}
               context={trip.planning_context ?? null}
+              currentVersion={trip.current_plan_version ?? null}
+              viewerId={viewerId}
               onNavigate={changeView}
             />
           </div>

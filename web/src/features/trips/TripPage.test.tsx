@@ -110,6 +110,7 @@ const MEMBER_TRIP = {
 };
 
 const GET_ROUTES: Record<string, Reply> = {
+  '/api/trips/{trip_id}/replanning': { status: 200, data: { proposal: null } },
   '/api/trips/{trip_id}/pilot': { status: 200, data: { run: null } },
   '/api/trips/{trip_id}/plans': { status: 200, data: { draft: null } },
   '/api/trips/{trip_id}/messages': {

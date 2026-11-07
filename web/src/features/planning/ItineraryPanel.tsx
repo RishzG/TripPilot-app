@@ -11,6 +11,7 @@ import { budgetCents } from '../trips/TravelPreferencesPanel';
 import { EmptyPlan, type WorkspaceView } from '../trips/TripWorkspace';
 
 import { PilotPanel } from './PilotPanel';
+import { ReplanningPanel } from './ReplanningPanel';
 
 type Draft = components['schemas']['PlanVersionView'];
 type SaveDraft = components['schemas']['CreatePlanVersion'];
@@ -424,12 +425,16 @@ export function ItineraryPanel({
   members,
   isOrganiser,
   context,
+  currentVersion,
+  viewerId,
   onNavigate,
 }: {
   tripId: string;
   members: Member[];
   isOrganiser: boolean;
   context: Context | null;
+  currentVersion: number | null;
+  viewerId: string | undefined;
   onNavigate: (view: WorkspaceView) => void;
 }) {
   const queryClient = useQueryClient();
@@ -443,6 +448,8 @@ export function ItineraryPanel({
       unwrap(await api.GET(ROUTE, { params: { path }, signal })),
     retry: false,
   });
+  const current = latest.data?.draft ?? null;
+  const viewingHistory = version !== null && version !== current?.version;
   const history = useQuery({
     queryKey: ['trip-plan', tripId, version],
     queryFn: async ({ signal }) =>
@@ -452,7 +459,7 @@ export function ItineraryPanel({
           signal,
         }),
       ),
-    enabled: version !== null,
+    enabled: viewingHistory,
     retry: false,
   });
   const save = useMutation({
@@ -469,9 +476,12 @@ export function ItineraryPanel({
     },
   });
 
-  const current = latest.data?.draft ?? null;
-  const selected = version === null ? latest : history;
+  const selected = viewingHistory ? history : latest;
   const draft = selected.data?.draft ?? null;
+  function openVersion(number: number) {
+    void latest.refetch();
+    setVersion(number === current?.version ? null : number);
+  }
   if (editing && isOrganiser) {
     return (
       <DraftEditor
@@ -507,7 +517,7 @@ export function ItineraryPanel({
             Browse drafts and see how estimated costs are shared.
           </p>
         </div>
-        {isOrganiser && version === null && (
+        {isOrganiser && !viewingHistory && (
           <Button
             type="button"
             onClick={() => {
@@ -530,22 +540,32 @@ export function ItineraryPanel({
           tripId={tripId}
           context={context}
           isOrganiser={isOrganiser}
-          onOpenDraft={(number) => {
-            void latest.refetch();
-            setVersion(number === current?.version ? null : number);
-          }}
+          onOpenDraft={openVersion}
         />
         {current === null && version === null ? (
           <EmptyPlan onNavigate={onNavigate} />
         ) : (
           <>
+            <ReplanningPanel
+              tripId={tripId}
+              viewed={draft}
+              currentVersion={currentVersion}
+              members={members}
+              viewerId={viewerId}
+              organiser={isOrganiser}
+              onOpen={openVersion}
+            />
             <nav
               aria-label="Draft history"
               className="flex flex-wrap items-center gap-2"
             >
               <span className="mr-2 text-sm font-semibold">
-                Draft v{version ?? current?.version} of{' '}
-                {current?.version ?? version}
+                {currentVersion === null
+                  ? 'Draft'
+                  : draft?.version === currentVersion
+                    ? 'Current version'
+                    : 'Version'}{' '}
+                v{version ?? current?.version} of {current?.version ?? version}
               </span>
               <Button
                 type="button"
@@ -560,7 +580,7 @@ export function ItineraryPanel({
               <Button
                 type="button"
                 variant="outline"
-                disabled={version === null}
+                disabled={!viewingHistory}
                 onClick={() =>
                   setVersion(
                     version === null ||
@@ -572,7 +592,7 @@ export function ItineraryPanel({
               >
                 Next
               </Button>
-              {version !== null && (
+              {viewingHistory && (
                 <Button
                   type="button"
                   variant="ghost"

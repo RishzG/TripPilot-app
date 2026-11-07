@@ -171,7 +171,9 @@ export function TripWorkspace({
           </span>
           <div className="flex items-center gap-3">
             <Badge className="bg-muted font-normal text-muted-foreground">
-              No plan selected
+              {trip.current_plan_version
+                ? `Current plan v${trip.current_plan_version}`
+                : 'No plan selected'}
             </Badge>
             {me.data?.is_persona && (
               <span className="text-muted-foreground">Demo persona</span>

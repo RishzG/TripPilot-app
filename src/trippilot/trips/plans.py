@@ -85,47 +85,50 @@ class PlanView(BaseModel):
     draft: PlanVersionView | None
 
 
-def _snapshot(
-    items: list[PlanItemInput],
-    names: dict[uuid.UUID, str],
-    sources: dict[uuid.UUID, ResearchSource],
-) -> PlanSnapshot:
-    estimates: list[PlanItem] = []
-    member_totals: dict[uuid.UUID, int | None] = {}
+def build_plan_item(
+    item: PlanItemInput, names: dict[uuid.UUID, str], source: ResearchSource | None = None
+) -> PlanItem:
+    cents = item.estimated_cents
+    quotient, remainder = divmod(cents or 0, len(item.participant_ids))
+    # Give leftover pennies to participants in stable ID order.
+    shares = [
+        EstimatedShare(
+            account_id=account_id,
+            name=names[account_id],
+            cents=None if cents is None else quotient + int(index < remainder),
+        )
+        for index, account_id in enumerate(sorted(item.participant_ids))
+    ]
+    return PlanItem(**item.model_dump(), shares=shares, source=source)
+
+
+def _snapshot(items: list[PlanItem]) -> PlanSnapshot:
+    estimates = sorted(items, key=lambda item: item.day)
+    member_totals: dict[uuid.UUID, EstimatedShare] = {}
     total = unpriced = 0
-    for item in sorted(items, key=lambda item: item.day):
-        cents = item.estimated_cents
-        quotient, remainder = divmod(cents or 0, len(item.participant_ids))
-        if cents is None:
+    for item in estimates:
+        if item.estimated_cents is None:
             unpriced += 1
         else:
-            total += cents
-
-        shares: list[EstimatedShare] = []
-        # Give the leftover pennies to participants in stable ID order.
-        for index, account_id in enumerate(sorted(item.participant_ids)):
-            share = None if cents is None else quotient + int(index < remainder)
-            shares.append(
-                EstimatedShare(account_id=account_id, name=names[account_id], cents=share)
-            )
-            if share is not None:
-                member_totals[account_id] = (member_totals.get(account_id) or 0) + share
-            else:
-                member_totals.setdefault(account_id, None)
-        estimates.append(PlanItem(**item.model_dump(), shares=shares, source=sources.get(item.id)))
+            total += item.estimated_cents
+        for share in item.shares:
+            previous = member_totals.get(share.account_id)
+            if previous is None:
+                member_totals[share.account_id] = share
+            elif share.cents is not None:
+                member_totals[share.account_id] = previous.model_copy(
+                    update={'cents': (previous.cents or 0) + share.cents}
+                )
 
     return PlanSnapshot(
         items=estimates,
         estimated_total_cents=total,
         unpriced_items=unpriced,
-        member_totals=[
-            EstimatedShare(account_id=account_id, name=names[account_id], cents=cents)
-            for account_id, cents in sorted(member_totals.items(), key=lambda pair: names[pair[0]])
-        ],
+        member_totals=sorted(member_totals.values(), key=lambda share: share.name),
     )
 
 
-def _view(row: PlanVersion) -> PlanVersionView:
+def plan_version_view(row: PlanVersion) -> PlanVersionView:
     return PlanVersionView.model_validate(
         {**row.snapshot, 'version': row.version, 'created_at': row.created_at}
     )
@@ -146,7 +149,7 @@ async def get_plan(
         row = await db.scalar(statement.where(PlanVersion.version == version))
         if row is None:
             raise HTTPException(status.HTTP_404_NOT_FOUND, 'Draft version not found')
-    return PlanView(draft=_view(row) if row is not None else None)
+    return PlanView(draft=plan_version_view(row) if row is not None else None)
 
 
 @router.post('', status_code=status.HTTP_201_CREATED)
@@ -158,7 +161,7 @@ async def create_plan(
     versions = select(PlanVersion).where(PlanVersion.trip_id == trip_id)
     existing = await db.scalar(versions.where(PlanVersion.request_id == body.request_id))
     if existing is not None:
-        saved = _view(existing)
+        saved = plan_version_view(existing)
         submitted = sorted(body.items, key=lambda item: item.day)
         original = [
             PlanItemInput.model_validate(item.model_dump(exclude={'shares', 'source'}))
@@ -175,7 +178,7 @@ async def create_plan(
     names = {member.account_id: member.nickname or member.display_name for member in trip.members}
     if any(account_id not in names for item in body.items for account_id in item.participant_ids):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, 'Select active trip members')
-    previous_items = {item.id: item for item in _view(latest).items} if latest else {}
+    previous_items = {item.id: item for item in plan_version_view(latest).items} if latest else {}
     sources = {}
     for item in body.items:
         previous = previous_items.get(item.id)
@@ -208,13 +211,25 @@ async def append_plan(
     sources: dict[uuid.UUID, ResearchSource],
 ) -> PlanVersionView:
     """Append a validated draft while the caller holds the trip lock."""
+    items = [build_plan_item(item, names, sources.get(item.id)) for item in body.items]
+    return await append_plan_items(db, trip_id, body.base_version + 1, body.request_id, items)
+
+
+async def append_plan_items(
+    db: AsyncSession,
+    trip_id: uuid.UUID,
+    version: int,
+    request_id: uuid.UUID,
+    items: list[PlanItem],
+) -> PlanVersionView:
+    """Append a version from calculated items under the trip lock."""
     row = PlanVersion(
         trip_id=trip_id,
-        version=body.base_version + 1,
-        request_id=body.request_id,
-        snapshot=_snapshot(body.items, names, sources).model_dump(mode='json'),
+        version=version,
+        request_id=request_id,
+        snapshot=_snapshot(items).model_dump(mode='json'),
     )
     db.add(row)
     await db.flush()
     await append_trip_event(db, trip_id, 'plan.version_created', {})
-    return _view(row)
+    return plan_version_view(row)
