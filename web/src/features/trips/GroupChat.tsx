@@ -112,15 +112,20 @@ function MessageList({
   );
 }
 
-/** Public trip discussion only. Text (including `/plan`) never executes a command. */
+/**
+ * Public trip discussion only. Text (including `/plan`) never executes a command.
+ * `onShareConcern` adds a link that expands and focuses the private concerns tile.
+ */
 export function GroupChat({
   tripId,
   fill = false,
   active = true,
+  onShareConcern,
 }: {
   tripId: string;
   fill?: boolean;
   active?: boolean;
+  onShareConcern?: () => void;
 }) {
   const labelId = useId();
   const queryClient = useQueryClient();
@@ -231,11 +236,22 @@ export function GroupChat({
           />
           Group chat
         </h2>
-        <p
-          id={`${labelId}-visibility`}
-          className="mt-1 text-xs text-muted-foreground"
-        >
-          Everyone in this trip can read these messages.
+        <p className="mt-1 text-xs text-muted-foreground">
+          <span id={`${labelId}-visibility`}>
+            Everyone in this trip can read these messages.
+          </span>
+          {onShareConcern && (
+            <>
+              {' '}
+              <button
+                type="button"
+                className="underline underline-offset-2 hover:text-foreground"
+                onClick={onShareConcern}
+              >
+                Share something privately
+              </button>
+            </>
+          )}
         </p>
       </CardHeader>
       <CardContent

@@ -13,6 +13,10 @@ describe('forgetSignedInState', () => {
     });
     queryClient.setQueryData(['vault-status'], { saved: true });
     queryClient.setQueryData(['trip-messages', 'trip-1'], { pages: [] });
+    queryClient.setQueryData(['trip-concerns', 'trip-1'], {
+      mine: [{ id: 1, content: 'Private' }],
+      anonymous: null,
+    });
 
     forgetSignedInState(queryClient);
 
@@ -26,6 +30,9 @@ describe('forgetSignedInState', () => {
     expect(queryClient.getQueryData(['vault-status'])).toBeUndefined();
     expect(
       queryClient.getQueryData(['trip-messages', 'trip-1']),
+    ).toBeUndefined();
+    expect(
+      queryClient.getQueryData(['trip-concerns', 'trip-1']),
     ).toBeUndefined();
   });
 

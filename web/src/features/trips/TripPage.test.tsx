@@ -115,6 +115,10 @@ const GET_ROUTES: Record<string, Reply> = {
     data: { messages: [], older_cursor: null },
   },
   '/api/trips/{trip_id}': { status: 200, data: ORGANISER_TRIP },
+  '/api/trips/{trip_id}/concerns': {
+    status: 200,
+    data: { mine: [], anonymous: [] },
+  },
   '/api/trips/{trip_id}/invite': { status: 200, data: { url: INVITE_URL } },
 };
 
@@ -224,6 +228,7 @@ describe('TripPage basics', () => {
     get.mockReset();
     post.mockReset();
     vi.mocked(toast).mockReset();
+    localStorage.clear();
   });
 
   it('shows the trip name and one row per member with the organiser marked', async () => {
@@ -276,6 +281,45 @@ describe('TripPage basics', () => {
       ),
     ).toBeTruthy();
     expect(screen.getByText('Nobody pays anything yet.')).toBeTruthy();
+  });
+
+  it('shows the private concerns tile beside the chat, with no navigation entry', async () => {
+    serve(get, GET_ROUTES);
+    renderTrip('chat');
+    expect(
+      await screen.findByRole('complementary', { name: 'Private concerns' }),
+    ).toBeTruthy();
+    expect(screen.getByLabelText('Share a private concern')).toBeTruthy();
+    expect(
+      within(
+        screen.getByRole('navigation', { name: 'Trip workspace' }),
+      ).queryByRole('button', { name: 'Private concerns' }),
+    ).toBeNull();
+  });
+
+  it('opens Chat with the tile open for an old concerns link and cleans the URL', async () => {
+    serve(get, GET_ROUTES);
+    localStorage.setItem('tp-concerns-tile', 'collapsed');
+    const router = renderTrip('concerns');
+    const chat = await screen.findByRole('button', { name: 'Chat' });
+    expect(chat.getAttribute('aria-current')).toBe('page');
+    expect(screen.getByLabelText('Share a private concern')).toBeTruthy();
+    await waitFor(() => expect(router.state.location.search).toBe(''));
+    expect(localStorage.getItem('tp-concerns-tile')).toBe('open');
+  });
+
+  it('expands the collapsed tile and focuses its box from Share something privately', async () => {
+    serve(get, GET_ROUTES);
+    localStorage.setItem('tp-concerns-tile', 'collapsed');
+    renderTrip('chat');
+    fireEvent.click(
+      await screen.findByRole('button', { name: 'Share something privately' }),
+    );
+    await waitFor(() =>
+      expect(document.activeElement).toBe(
+        screen.getByRole('textbox', { name: 'Share a private concern' }),
+      ),
+    );
   });
 
   it('shows the locked empty state when the organiser is alone', async () => {
@@ -641,6 +685,9 @@ describe('TripPage live updates', () => {
         });
       }
       if (path === '/api/me') return answer({ status: 401, data: {} });
+      if (path === '/api/trips/{trip_id}/concerns') {
+        return answer({ status: 200, data: { mine: [], anonymous: [] } });
+      }
       return answer({ status: 200, data: { url: INVITE_URL } });
     });
     renderTrip();

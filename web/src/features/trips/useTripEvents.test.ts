@@ -86,6 +86,25 @@ describe('useTripEvents', () => {
     },
   );
 
+  it.each(['concerns.changed', 'open'])(
+    'refreshes each viewer’s own private concerns on %s',
+    (type) => {
+      const { invalidate } = setup('trip-1');
+      onlySource().emit(type);
+      expect(invalidate).toHaveBeenCalledWith({
+        queryKey: ['trip-concerns', 'trip-1'],
+      });
+    },
+  );
+
+  it('does not refetch the trip when only concerns change', () => {
+    const { invalidate } = setup('trip-1');
+    onlySource().emit('concerns.changed');
+    expect(invalidate).not.toHaveBeenCalledWith({
+      queryKey: ['trip', 'trip-1'],
+    });
+  });
+
   it('invalidates when the tab becomes visible again, not when it hides', () => {
     const { invalidate } = setup('trip-1');
     setVisibility('hidden');
