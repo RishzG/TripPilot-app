@@ -34,6 +34,8 @@ class TravelPreferences(BaseModel):
     pace: Pace = 'balanced'
     budget_cents: int | None = Field(default=None, strict=True, ge=0, le=100_000_000)
     dietary_notes: str = Field(default='', max_length=1000)
+    must_haves: str = Field(default='', max_length=1000)
+    preferred: str = Field(default='', max_length=1000)
 
 
 class SharedTravelPreferences(BaseModel):
@@ -63,6 +65,8 @@ def own_preferences(profile: TravelProfile | None) -> TravelPreferences:
         pace=profile.pace,
         budget_cents=profile.budget_cents,
         dietary_notes=profile.dietary_notes,
+        must_haves=profile.must_haves,
+        preferred=profile.preferred,
     )
 
 

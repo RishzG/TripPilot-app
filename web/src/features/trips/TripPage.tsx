@@ -18,11 +18,11 @@ import { ApiError, api, unwrap } from '../../lib/api';
 import type { components } from '../../lib/api-types';
 import { useMe } from '../auth/useMe';
 import { SavePayPalButton } from '../paypal/SavePayPalButton';
+import { PlanWorkspace, TripContextSummary } from '../planning/PlanWorkspace';
 import { GroupChat } from './GroupChat';
 import { PrivateConcernsTile, useConcernsTileOpen } from './PrivateConcerns';
 import { TravelPreferencesPanel } from './TravelPreferencesPanel';
 import {
-  EmptyPlan,
   TripWorkspace,
   UpcomingView,
   WORKSPACE_VIEWS,
@@ -280,6 +280,8 @@ function DeleteWorkspace({
         'trip',
         'trip-preferences',
         'trip-messages',
+        'trip-concerns',
+        'trip-planning',
         'invite-link',
       ]) {
         queryClient.removeQueries({ queryKey: [key, tripId], exact: true });
@@ -622,7 +624,12 @@ function TripContent({
         </div>
         {view === 'plan' && (
           <div className="mx-auto min-h-0 w-full max-w-7xl flex-1">
-            <EmptyPlan onNavigate={changeView} />
+            <PlanWorkspace
+              key={tripId}
+              tripId={tripId}
+              isOrganiser={isOrganiser}
+              members={members}
+            />
           </div>
         )}
         <section
@@ -655,7 +662,8 @@ function TripContent({
             </p>
             <p className="mt-5 font-semibold">Private to you</p>
             <p className="mt-1 text-muted-foreground">
-              Your budget and dietary notes stay out of group summaries.
+              Pilot checks your budget and dietary notes privately. They stay
+              out of group summaries.
             </p>
           </aside>
         </section>
@@ -844,10 +852,16 @@ function TripContent({
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground">
-                    No dates or destination have been selected yet.
+                    <TripContextSummary tripId={tripId} />
                   </p>
                   <p className="mt-2 text-sm text-muted-foreground">
-                    There are no bookings or recorded costs.
+                    <button
+                      type="button"
+                      className="underline"
+                      onClick={() => changeView('plan')}
+                    >
+                      Open itinerary and trip details
+                    </button>
                   </p>
                 </CardContent>
               </Card>

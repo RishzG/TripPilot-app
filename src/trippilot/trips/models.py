@@ -90,6 +90,8 @@ class TravelProfile(Base):
     pace: Mapped[str] = mapped_column(Text, server_default='balanced')
     budget_cents: Mapped[int | None] = mapped_column(Integer)
     dietary_notes: Mapped[str] = mapped_column(Text, server_default='')
+    must_haves: Mapped[str] = mapped_column(Text, server_default='')
+    preferred: Mapped[str] = mapped_column(Text, server_default='')
     updated_at: Mapped[datetime] = mapped_column(server_default=text('now()'))
 
 

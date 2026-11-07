@@ -72,7 +72,7 @@ afterEach(() => {
 it('is honest that a small group may still guess who wrote a concern', async () => {
   show();
   expect(await screen.findByText(/may still be able to guess/)).toBeTruthy();
-  expect(screen.getByText(/Other members never see them/)).toBeTruthy();
+  expect(screen.getByText(/Other members never see your notes/)).toBeTruthy();
 });
 
 it('sends the text with a client UUID and clears the draft only after success', async () => {
@@ -141,7 +141,15 @@ it('shows the leader the anonymous list with content and a date, and no names', 
   show(true);
   expect(await screen.findByText('From the group (anonymous)')).toBeTruthy();
   expect(screen.getByText('Worried about the hike')).toBeTruthy();
-  expect(screen.getByText(/Nov 5/)).toBeTruthy();
+  expect(
+    screen.getByText(
+      new Date('2026-11-05T00:00:00Z').toLocaleDateString(undefined, {
+        month: 'short',
+        day: 'numeric',
+        timeZone: 'UTC',
+      }),
+    ),
+  ).toBeTruthy();
 });
 
 it('shows an empty state to a leader with nothing yet', async () => {

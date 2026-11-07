@@ -75,10 +75,41 @@ for Sam. Two normal tabs share the same sign-in cookie. Create disposable test t
 Scope: public chat, preferences, membership, workspace UX and private concerns. Private concerns
 have their own checklist:
 [manual test: private concerns](../planning/manual-test-private-concerns.md).
-A working Pilot, plans/maps, booking and money features are not yet implemented. `/plan` typed
-into chat remains ordinary text.
+Plan versions, itinerary/maps and Pilot job orchestration are implemented; live Pilot requires
+provider configuration and acceptance checks. Booking and money product flows remain pending.
+`/plan` typed into chat remains ordinary text.
 
 For a fresh local stack, the existing `docker compose up --build` recipe starts PostgreSQL,
 the app and the worker with demo mode and fake payments. The desktop browser suite runs with
 `npm --prefix web run e2e -- --project desktop-laptop --project desktop-wide` after the stack is
 ready. Repeated invite tests can hit the normal 10-per-minute preview/join limiter.
+
+
+## Planning, sample itinerary and cancellation
+
+1. Join a demo trip with two browser sessions (leader and member), then open Plan.
+2. The leader saves destination, start/end dates and an IANA timezone. Another member can
+   read these details; editing requires the leader. The details collapse after dates are saved.
+3. Load Chicago sample, choose Chicago sample day, and select it for the demo. Inspect the
+   day itinerary, source links, map locations and per-person estimated shares.
+4. Cancel the Art Institute item and propose Chicago Cultural Center from the alternatives.
+   Inspect the new revision and the per-person estimate differences. The original version
+   remains unchanged in history.
+5. The leader accepts. Apply remains disabled until the other affected member reviews and
+   accepts the exact revision. Needs discussion or Reject blocks application.
+6. Apply the accepted revision. The selected itinerary changes and the old version remains
+   inspectable. Changing private inputs, membership or dates makes older decisions stale.
+7. For live Pilot, configure `AI_GATEWAY_API_KEY` and `PILOT_MODEL` in API and worker and run
+   the existing Procrastinate worker. Save private concerns/budget/dietary notes before the
+   leader invokes Pilot. Observe queued/running/completed or a safe recoverable failure.
+   Verify that private explanations appear only for their owner. A withdrawn concern also
+   removes that owner's potentially derivative plan explanations.
+
+Samples are illustrative, bypass private fit evaluation, and are selectable only in demo trips.
+Live drafts require verified provider access; inspect factual/price uncertainty before use.
+
+
+The [full planning acceptance checklist](../planning/manual-test-planning.md) expands these
+steps to cover trip editing and validation, exact shares and immutable history, multi-day/map
+usability, durable Pilot recovery, private explanations and affected-member acceptance.
+Use the [morning walkthrough](../planning/morning-group-walkthrough.md) for the shared demo.

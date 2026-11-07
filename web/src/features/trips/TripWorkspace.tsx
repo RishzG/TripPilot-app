@@ -1,14 +1,11 @@
 import {
   ArrowLeft,
-  CalendarDays,
   ChevronRight,
-  Compass,
   CreditCard,
   LayoutDashboard,
   Map as MapIcon,
   MessageCircle,
   Settings2,
-  Sparkles,
   Users,
   Wallet,
 } from 'lucide-react';
@@ -18,7 +15,6 @@ import { AccountMenu } from '@/app/AccountMenu';
 import { Avatar, shownName } from '@/components/Avatar';
 import { Logo } from '@/components/Logo';
 import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
 import type { components } from '@/lib/api-types';
 import { cn } from '@/lib/utils';
 import { useMe } from '../auth/useMe';
@@ -171,7 +167,7 @@ export function TripWorkspace({
           </span>
           <div className="flex items-center gap-3">
             <Badge className="bg-muted font-normal text-muted-foreground">
-              No plan selected
+              Plans & decisions
             </Badge>
             {me.data?.is_persona && (
               <span className="text-muted-foreground">Demo persona</span>
@@ -187,71 +183,6 @@ export function TripWorkspace({
         </div>
       </div>
     </div>
-  );
-}
-
-export function EmptyPlan({
-  onNavigate,
-}: {
-  onNavigate: (view: WorkspaceView) => void;
-}) {
-  return (
-    <section
-      aria-labelledby="empty-plan-title"
-      className="flex h-full min-h-96 min-w-0 flex-col overflow-hidden rounded-2xl border border-border bg-card"
-    >
-      <div className="flex items-center justify-between border-b border-border px-6 py-4">
-        <span className="flex items-center gap-2 text-sm font-semibold">
-          <CalendarDays size={18} aria-hidden="true" /> Itinerary & map
-        </span>
-        <span className="text-xs text-muted-foreground">No itinerary yet</span>
-      </div>
-      <div className="flex min-h-0 flex-1 flex-col items-center justify-center px-7 py-4 text-center 2xl:px-14 2xl:py-8">
-        <div className="relative mb-3 flex size-14 shrink-0 items-center justify-center rounded-full border border-dashed border-primary/30 bg-primary/5">
-          <Compass
-            size={28}
-            strokeWidth={1.25}
-            className="text-primary"
-            aria-hidden="true"
-          />
-          <span className="absolute -right-1 bottom-2 flex size-7 items-center justify-center rounded-full border border-border bg-card">
-            <Sparkles size={13} className="text-primary" aria-hidden="true" />
-          </span>
-        </div>
-        <p className="text-[10px] font-semibold tracking-[0.18em] text-primary uppercase">
-          Room for a great trip
-        </p>
-        <h2
-          id="empty-plan-title"
-          className="mt-2 max-w-sm text-2xl font-semibold leading-tight tracking-tight 2xl:text-3xl"
-        >
-          Your next adventure starts with a conversation.
-        </h2>
-        <p className="mt-3 max-w-sm text-sm leading-relaxed text-muted-foreground">
-          Share your ideas in chat and add what matters to you. Your itinerary
-          and map will come together here.
-        </p>
-        <div className="mt-5 flex shrink-0 flex-wrap justify-center gap-3">
-          <Button type="button" onClick={() => onNavigate('chat')}>
-            Open group chat
-          </Button>
-          <Button
-            type="button"
-            variant="outline"
-            onClick={() => onNavigate('preferences')}
-          >
-            Add your preferences
-          </Button>
-        </div>
-      </div>
-      <div className="mx-6 mb-4 shrink-0 rounded-xl bg-muted/60 px-4 py-3 text-[11px] leading-relaxed text-muted-foreground">
-        <p>Your plan will appear here once the group starts planning</p>
-        <div className="mt-1 flex flex-wrap justify-between gap-1">
-          <span>Plan generation is coming next.</span>
-          <span>Nobody pays anything yet.</span>
-        </div>
-      </div>
-    </section>
   );
 }
 

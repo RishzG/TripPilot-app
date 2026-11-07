@@ -24,25 +24,24 @@ verification. An unfinished feature is listed separately from a confirmed defect
 
 | Item | Status / impact | Next owner |
 | --- | --- | --- |
-| Pilot request lifecycle | Not on main: a durable leader-only request that ends as Planner not connected yet is built and tested on branch `feat/stage-3-concerns-pilot-runs`, pending review. `/plan` in chat is ordinary text. Private concerns are delivered. | Pilot / orchestration work stream |
-| Planning, maps and dates | No plan model, selected dates/destination or working map provider; Plan is an honest empty state | Plan-domain and research work streams |
+| Live Pilot acceptance | Durable lifecycle, bounded Gateway research and private fit checks are implemented; real provider execution needs `AI_GATEWAY_API_KEY` and `PILOT_MODEL`. Sample/mocked results do not establish live success. | Planning / platform owner |
 | Intended contribution verification | Personal member-to-leader route remains unproven; existing business-account experiments do not resolve it | Payment feasibility owner |
 | Webhook reconciliation | Events are recorded, but full resource reconciliation/state transitions are absent | Payments owner, after agreed money design |
 | Hosted demo availability | Production returned Service Suspended when checked earlier Nov 6; current branch has not been deployed | Platform owner using `docs/operations.md` |
 | Secret rotation status | The earlier foundation report flags exposed staging vault/invite secrets; rotation status is not established by this work | Platform owner; verify without copying secrets into docs/logs |
 | Judge access and demo reset | Judge login list is empty; reusable reset/quota fallback flow is incomplete | Demo/platform owner |
-| Bundle size | Vite reports the existing >500 kB entry-chunk advisory; latest build is approximately 619 kB before gzip | Frontend performance follow-up |
+| Bundle size | Vite reports the existing >500 kB entry-chunk advisory; latest build is approximately 640 kB before gzip | Frontend performance follow-up |
 | Cross-browser/mobile | Automated UI verification here is desktop Chromium at two sizes; no claim of phone or other-browser acceptance | Later verification scope |
 
 ## Verification evidence
 
 | Check | Latest relevant result |
 | --- | --- |
-| Complete backend suite | 519 passed (`uv run pytest -q`) |
-| Complete frontend suite | 337 passed, including keyboard submission, privacy, cache invalidation, retry, navigation and the concerns tile |
-| Desktop browser suite | Ten cases at 1366 x 768 and 1920 x 1080 cover chat, preferences, membership/deletion, private concerns and workspace layout |
-| Type/static checks | Strict mypy, Ruff lint/format, TypeScript and Biome checks passed for the changes |
-| Migration chain | One Alembic head: `0007_private_concerns`; fresh test-database upgrade exercised by integration tests |
+| Complete backend suite | 538 passed against isolated PostgreSQL 18 (`pytest -q`) |
+| Complete frontend suite | 342 passed, including keyboard submission, privacy, cache invalidation, retry, navigation and the concerns tile |
+| Desktop browser suite | 12 passed at 1366 x 768 and 1920 x 1080, including sample selection and two-member cancellation acceptance; combined run used the guarded disposable-database fixture |
+| Type/static checks | Strict mypy, Ruff lint/format, TypeScript, whole-web Biome lint and changed-file formatting passed. Full Windows formatter check flags existing CRLF files |
+| Migration chain | One Alembic head: `0008_planning`; fresh test-database upgrade exercised by integration tests |
 | Production frontend build | Passed, with the bundle-size advisory above |
 
 Local Python validation used PostgreSQL 18; repository CI uses PostgreSQL 16. The original

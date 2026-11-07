@@ -20,6 +20,7 @@ from trippilot.jobs.app import app as jobs_app
 from trippilot.jobs.app import libpq_conninfo
 from trippilot.log_config import configure_logging
 from trippilot.payments import router as payments_router
+from trippilot.planning.router import router as planning_router
 from trippilot.realtime import router as realtime_router
 from trippilot.realtime.hub import TripHub
 from trippilot.realtime.listener import listener_dsn, run_listener
@@ -36,7 +37,7 @@ _PAYPAL_ORIGINS = (
 CSP_REPORT_ONLY = (
     "default-src 'self'; "
     f"script-src 'self' {_PAYPAL_ORIGINS}; "
-    f"frame-src 'self' {_PAYPAL_ORIGINS}; "
+    f"frame-src 'self' {_PAYPAL_ORIGINS} https://www.openstreetmap.org; "
     f"connect-src 'self' {_PAYPAL_ORIGINS}; "
     f"img-src 'self' data: {_PAYPAL_ORIGINS}; "
     "style-src 'self' 'unsafe-inline'"
@@ -110,6 +111,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app.include_router(chat_router)
     app.include_router(concerns_router)
     app.include_router(preferences_router)
+    app.include_router(planning_router)
     app.include_router(payments_router.router)
     app.include_router(realtime_router.router)
     app.include_router(admin_router.router)

@@ -32,7 +32,10 @@ test('desktop workspace keeps navigation, chat and plan usable and preserves dra
       name: 'Private concerns',
       exact: true,
     });
-    const plan = page.locator('[aria-labelledby="empty-plan-title"]');
+    const plan = page.getByRole('heading', {
+      name: 'Your shared itinerary',
+      exact: true,
+    });
     await expect(
       page.getByRole('button', { name: 'Send message', exact: true }),
     ).toBeInViewport();
@@ -135,7 +138,7 @@ test('desktop workspace keeps navigation, chat and plan usable and preserves dra
     await expect(plan).toBeVisible();
     await expect(chat).toBeHidden();
     await expect(
-      page.getByText('Nobody pays anything yet.', { exact: true }),
+      page.getByRole('button', { name: 'Load Chicago sample', exact: true }),
     ).toBeInViewport();
     await page.screenshot({
       path: `test-results/workspace-plan-${viewport?.width}.png`,

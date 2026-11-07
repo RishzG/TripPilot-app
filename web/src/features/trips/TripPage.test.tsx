@@ -110,6 +110,25 @@ const MEMBER_TRIP = {
 };
 
 const GET_ROUTES: Record<string, Reply> = {
+  '/api/trips/{trip_id}/planning': {
+    status: 200,
+    data: {
+      context: {
+        name: 'Tahoe weekend',
+        destination: '',
+        timezone: 'UTC',
+        revision: 0,
+        start_date: null,
+        end_date: null,
+      },
+      versions: [],
+      selected_id: null,
+      runs: [],
+      proposals: [],
+      my_explanations: {},
+      pilot_configured: false,
+    },
+  },
   '/api/trips/{trip_id}/messages': {
     status: 200,
     data: { messages: [], older_cursor: null },
@@ -272,15 +291,18 @@ describe('TripPage basics', () => {
     expect(screen.getByRole('button', { name: 'Retry loading' })).toBeTruthy();
   });
 
-  it('shows the plan placeholder card in its empty state', async () => {
+  it('shows planning controls and an honest empty state', async () => {
     serve(get, GET_ROUTES);
     renderTrip('plan');
     expect(
-      await screen.findByText(
-        'Your plan will appear here once the group starts planning',
-      ),
+      await screen.findByText('Start with your group’s context'),
     ).toBeTruthy();
-    expect(screen.getByText('Nobody pays anything yet.')).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Save trip details' }),
+    ).toBeTruthy();
+    expect(
+      screen.getByRole('button', { name: 'Load Chicago sample' }),
+    ).toBeTruthy();
   });
 
   it('shows the private concerns tile beside the chat, with no navigation entry', async () => {

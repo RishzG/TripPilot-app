@@ -55,6 +55,8 @@ function PreferencesForm({
   );
   const [budget, setBudget] = useState(budgetText(initial.budget_cents));
   const [diet, setDiet] = useState(initial.dietary_notes ?? '');
+  const [mustHaves, setMustHaves] = useState(initial.must_haves ?? '');
+  const [preferred, setPreferred] = useState(initial.preferred ?? '');
   const [error, setError] = useState('');
   const save = useMutation({
     mutationFn: async (body: Preferences) =>
@@ -96,6 +98,8 @@ function PreferencesForm({
       pace,
       budget_cents: cents,
       dietary_notes: diet.trim(),
+      must_haves: mustHaves.trim(),
+      preferred: preferred.trim(),
     });
   }
 
@@ -159,9 +163,38 @@ function PreferencesForm({
         <fieldset className="grid min-w-0 gap-4 rounded-lg border border-border p-4">
           <legend className="px-1 font-semibold">Private preferences</legend>
           <p id={`${id}-privacy`} className="text-sm text-muted-foreground">
-            Only you can view your budget and dietary notes here. They are
-            excluded from group views and live updates.
+            Only you can view your budget, dietary notes and requirement
+            priorities here. Pilot uses them privately to check plan fit. They
+            are excluded from group views and live updates.
           </p>
+          <label className="grid gap-1 font-semibold">
+            Must have
+            <textarea
+              className={TEXTAREA}
+              maxLength={1000}
+              value={mustHaves}
+              onChange={(event) => setMustHaves(event.target.value)}
+              placeholder="Ex. step-free access throughout; no activities after 8 pm"
+            />
+            <span className="text-sm font-normal text-muted-foreground">
+              Required for a plan to fit you. Unresolved requirements block a
+              live draft.
+            </span>
+          </label>
+          <label className="grid gap-1 font-semibold">
+            Prefer
+            <textarea
+              className={TEXTAREA}
+              maxLength={1000}
+              value={preferred}
+              onChange={(event) => setPreferred(event.target.value)}
+              placeholder="Ex. outdoor lunches; a relaxed morning"
+            />
+            <span className="text-sm font-normal text-muted-foreground">
+              Pilot may make tradeoffs and explain them privately. Budget
+              ceilings and dietary safety remain requirements.
+            </span>
+          </label>
           <div className="grid gap-1">
             <label htmlFor={`${id}-budget`} className="font-semibold">
               Your trip budget (USD)

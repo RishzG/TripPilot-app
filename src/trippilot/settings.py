@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     invite_secret: SecretStr = SecretStr('')
     duffel_access_token: SecretStr = SecretStr('')
     app_git_sha: str = 'dev'
+    ai_gateway_api_key: SecretStr = SecretStr('')
+    pilot_model: str = ''
 
     @field_validator('database_url')
     @classmethod

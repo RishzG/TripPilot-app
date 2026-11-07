@@ -211,3 +211,6 @@ web/playwright-report/
 # Hand-written web/src/lib sources (the bare lib/ rule above is for Python); the generated
 # api-types.ts stays ignored by its own rule above
 !web/src/lib/
+
+# Local verification databases and output
+.tmp/
