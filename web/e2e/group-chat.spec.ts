@@ -62,7 +62,16 @@ test('group chat persists, updates live, retries once and loads older history', 
       [mayaLog, 'Let’s visit the museum.', 'Sounds good!'],
       [samLog, 'Sounds good!', 'Let’s visit the museum.'],
     ] as const) {
-      await expect(log.getByText('You', { exact: true })).toBeVisible();
+      await expect(log.getByText('You', { exact: true })).toHaveCount(0);
+      const outgoingRow = log.getByRole('listitem').filter({ hasText: own });
+      const incomingRow = log
+        .getByRole('listitem')
+        .filter({ hasText: incoming });
+      await expect(outgoingRow.locator('[aria-hidden="true"]')).toHaveCount(0);
+      await expect(incomingRow.locator('[aria-hidden="true"]')).toHaveCount(1);
+      await expect(log.getByRole('listitem')).toHaveCount(3);
+      await expect(outgoingRow.locator('time')).toBeVisible();
+      await expect(incomingRow.locator('time')).toBeVisible();
       await expect(async () => {
         const ownBox = await log.getByText(own).boundingBox();
         const incomingBox = await log.getByText(incoming).boundingBox();

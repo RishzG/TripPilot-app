@@ -7,6 +7,7 @@ import {
 import { MessageCircle } from 'lucide-react';
 import {
   type FormEvent,
+  Fragment,
   useId,
   useLayoutEffect,
   useMemo,
@@ -25,6 +26,8 @@ type History = components['schemas']['MessageHistory'];
 type Message = components['schemas']['MessageView'];
 type ChatData = InfiniteData<History, number | null>;
 const MAX_LENGTH = 4000;
+const chatDay = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+const chatTime = new Intl.DateTimeFormat(undefined, { timeStyle: 'short' });
 
 /** Keep the reader's place on older-page loads; follow new messages only near the bottom. */
 function MessageList({
@@ -76,61 +79,63 @@ function MessageList({
           target.scrollHeight - target.clientHeight - target.scrollTop < 64;
       }}
     >
-      {messages.map((message) => {
+      {messages.map((message, index) => {
         const own = message.account_id === viewerId;
+        const sent = new Date(message.created_at);
+        const previous = messages[index - 1];
+        const startsDay =
+          previous === undefined ||
+          new Date(previous.created_at).toDateString() !== sent.toDateString();
         return (
-          <li
-            key={message.id}
-            className={cn(
-              'flex min-w-0 items-start gap-2.5 py-3 first:pt-0 last:pb-0',
-              own && 'flex-row-reverse',
+          <Fragment key={message.id}>
+            {startsDay && (
+              <li className="flex justify-center py-3 first:pt-0">
+                <span className="rounded-full bg-muted px-3 py-1 text-xs font-medium text-muted-foreground">
+                  {chatDay.format(sent)}
+                </span>
+              </li>
             )}
-          >
-            <Avatar
-              name={message.author_name}
-              kind="initials"
-              avatarKey={null}
-              size={32}
-            />
-            <div
+            <li
               className={cn(
-                'flex min-w-0 max-w-[75ch] flex-col',
-                own ? 'items-end' : 'items-start',
+                'flex min-w-0 items-start gap-2.5 py-1.5 last:pb-0',
+                own && 'justify-end',
               )}
             >
+              {!own && (
+                <Avatar
+                  name={message.author_name}
+                  kind="initials"
+                  avatarKey={null}
+                  size={32}
+                />
+              )}
               <div
                 className={cn(
-                  'flex flex-wrap items-baseline gap-x-3 gap-y-1',
-                  own && 'justify-end',
-                )}
-              >
-                <span className="break-words font-semibold">
-                  {own ? 'You' : message.author_name}
-                </span>
-                <time
-                  dateTime={message.created_at}
-                  className="text-xs text-muted-foreground"
-                >
-                  {new Date(message.created_at).toLocaleString(undefined, {
-                    month: 'short',
-                    day: 'numeric',
-                    hour: 'numeric',
-                    minute: '2-digit',
-                  })}
-                </time>
-              </div>
-              <p
-                className={cn(
-                  'mt-1.5 w-fit max-w-full rounded-xl px-3 py-2.5 text-sm leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]',
+                  'min-w-0 max-w-[75ch] rounded-xl px-3 py-2 text-sm',
                   own
                     ? 'rounded-tr-sm bg-primary/10'
                     : 'rounded-tl-sm bg-muted/70',
                 )}
               >
-                {message.content}
-              </p>
-            </div>
-          </li>
+                {!own && (
+                  <p className="mb-0.5 break-words font-semibold [overflow-wrap:anywhere]">
+                    {message.author_name}
+                  </p>
+                )}
+                <div className="flex flex-wrap items-end justify-end gap-x-3">
+                  <p className="min-w-0 max-w-full leading-relaxed whitespace-pre-wrap break-words [overflow-wrap:anywhere]">
+                    {message.content}
+                  </p>
+                  <time
+                    dateTime={message.created_at}
+                    className="shrink-0 text-[11px] text-muted-foreground"
+                  >
+                    {chatTime.format(sent)}
+                  </time>
+                </div>
+              </div>
+            </li>
+          </Fragment>
         );
       })}
     </ul>

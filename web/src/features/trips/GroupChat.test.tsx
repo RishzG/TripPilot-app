@@ -138,8 +138,11 @@ it('loads older pages in chronological order', async () => {
   const rows = within(
     screen.getByRole('log', { name: 'Group messages' }),
   ).getAllByRole('listitem');
-  expect(rows[0]?.textContent).toContain('Earlier discussion');
-  expect(rows[1]?.textContent).toContain('Where shall we go?');
+  expect(rows).toHaveLength(3);
+  const day = new Intl.DateTimeFormat(undefined, { dateStyle: 'medium' });
+  expect(rows[0]?.textContent).toBe(day.format(new Date(sample.created_at)));
+  expect(rows[1]?.textContent).toContain('Earlier discussion');
+  expect(rows[2]?.textContent).toContain('Where shall we go?');
   expect(
     screen.queryByRole('button', { name: 'Load older messages' }),
   ).toBeNull();
