@@ -10,9 +10,12 @@ import type { components } from '@/lib/api-types';
 import { budgetCents } from '../trips/TravelPreferencesPanel';
 import { EmptyPlan, type WorkspaceView } from '../trips/TripWorkspace';
 
+import { PilotPanel } from './PilotPanel';
+
 type Draft = components['schemas']['PlanVersionView'];
 type SaveDraft = components['schemas']['CreatePlanVersion'];
 type Item = components['schemas']['PlanItemInput'];
+type Context = components['schemas']['TripPlanningContext'];
 type Member = components['schemas']['MemberView'];
 type EditableItem = Omit<Item, 'estimated_cents'> & { cost: string };
 
@@ -342,6 +345,23 @@ function DraftDetails({ draft }: { draft: Draft }) {
                         {item.location}
                       </p>
                     )}
+                    {item.source && (
+                      <p className="text-xs text-muted-foreground">
+                        <a
+                          href={item.source.url}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="font-medium text-primary underline"
+                        >
+                          {item.source.title}
+                        </a>
+                        {' · Checked '}
+                        {item.source.checked_on}
+                        {'. '}
+                        {item.source.estimate_note}
+                        {' Check the venue for your dates.'}
+                      </p>
+                    )}
                     <ul
                       className="flex flex-wrap gap-2"
                       aria-label={`Estimated shares for ${item.title}`}
@@ -403,11 +423,13 @@ export function ItineraryPanel({
   tripId,
   members,
   isOrganiser,
+  context,
   onNavigate,
 }: {
   tripId: string;
   members: Member[];
   isOrganiser: boolean;
+  context: Context | null;
   onNavigate: (view: WorkspaceView) => void;
 }) {
   const queryClient = useQueryClient();
@@ -497,56 +519,77 @@ export function ItineraryPanel({
           </Button>
         )}
       </header>
-      {current === null ? (
-        <EmptyPlan onNavigate={onNavigate} />
-      ) : (
-        <>
-          <nav
-            aria-label="Draft history"
-            className="flex flex-wrap items-center gap-2"
-          >
-            <span className="mr-2 text-sm font-semibold">
-              Draft v{version ?? current.version} of {current.version}
-            </span>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={(version ?? current.version) <= 1}
-              onClick={() => setVersion((version ?? current.version) - 1)}
+      <div
+        className={
+          current === null && version === null
+            ? 'grid items-start gap-5 lg:grid-cols-2'
+            : 'space-y-5'
+        }
+      >
+        <PilotPanel
+          tripId={tripId}
+          context={context}
+          isOrganiser={isOrganiser}
+          onOpenDraft={(number) => {
+            void latest.refetch();
+            setVersion(number === current?.version ? null : number);
+          }}
+        />
+        {current === null && version === null ? (
+          <EmptyPlan onNavigate={onNavigate} />
+        ) : (
+          <>
+            <nav
+              aria-label="Draft history"
+              className="flex flex-wrap items-center gap-2"
             >
-              Previous
-            </Button>
-            <Button
-              type="button"
-              variant="outline"
-              disabled={version === null}
-              onClick={() =>
-                setVersion(
-                  version === null || version + 1 >= current.version
-                    ? null
-                    : version + 1,
-                )
-              }
-            >
-              Next
-            </Button>
-            {version !== null && (
+              <span className="mr-2 text-sm font-semibold">
+                Draft v{version ?? current?.version} of{' '}
+                {current?.version ?? version}
+              </span>
               <Button
                 type="button"
-                variant="ghost"
-                onClick={() => setVersion(null)}
+                variant="outline"
+                disabled={(version ?? current?.version ?? 1) <= 1}
+                onClick={() =>
+                  setVersion((version ?? current?.version ?? 1) - 1)
+                }
               >
-                Latest draft
+                Previous
               </Button>
+              <Button
+                type="button"
+                variant="outline"
+                disabled={version === null}
+                onClick={() =>
+                  setVersion(
+                    version === null ||
+                      version + 1 >= (current?.version ?? version)
+                      ? null
+                      : version + 1,
+                  )
+                }
+              >
+                Next
+              </Button>
+              {version !== null && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  onClick={() => setVersion(null)}
+                >
+                  Latest draft
+                </Button>
+              )}
+            </nav>
+            {selected.isPending && <p role="status">Loading draft…</p>}
+            {selected.isError && (
+              <ErrorRetry onRetry={() => void selected.refetch()} />
             )}
-          </nav>
-          {selected.isPending && <p role="status">Loading draft…</p>}
-          {selected.isError && (
-            <ErrorRetry onRetry={() => void selected.refetch()} />
-          )}
-          {draft && <DraftDetails draft={draft} />}
-        </>
-      )}
+            {draft && <DraftDetails draft={draft} />}
+          </>
+        )}
+      </div>
     </section>
   );
 }

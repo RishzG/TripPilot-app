@@ -285,6 +285,7 @@ function DeleteWorkspace({
         queryClient.removeQueries({ queryKey: [key, tripId], exact: true });
       }
       queryClient.removeQueries({ queryKey: ['trip-plan', tripId] });
+      queryClient.removeQueries({ queryKey: ['trip-pilot', tripId] });
       queryClient.removeQueries({ queryKey: ['trips'] });
     },
   });
@@ -565,6 +566,7 @@ function TripContent({
     onSuccess: () => {
       navigate('/');
       queryClient.removeQueries({ queryKey: ['trip-plan', tripId] });
+      queryClient.removeQueries({ queryKey: ['trip-pilot', tripId] });
       queryClient.removeQueries({ queryKey: ['trips'] });
       queryClient.removeQueries({ queryKey: ['trip', tripId], exact: true });
     },
@@ -629,6 +631,7 @@ function TripContent({
               tripId={tripId}
               members={members}
               isOrganiser={isOrganiser}
+              context={trip.planning_context ?? null}
               onNavigate={changeView}
             />
           </div>
@@ -852,7 +855,9 @@ function TripContent({
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground">
-                    No dates or destination have been selected yet.
+                    {trip.planning_context
+                      ? `${trip.planning_context.destination} · ${trip.planning_context.start_date} to ${trip.planning_context.end_date} · ${trip.planning_context.timezone}`
+                      : 'No dates or destination have been selected yet.'}
                   </p>
                   <p className="mt-2 text-sm text-muted-foreground">
                     There are no bookings or recorded costs.

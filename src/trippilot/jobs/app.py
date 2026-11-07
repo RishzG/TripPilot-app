@@ -27,5 +27,5 @@ app = procrastinate.App(
         min_size=1,
         max_size=JOB_POOL_MAX_SIZE,
     ),
-    import_paths=['trippilot.jobs.tasks', 'trippilot.payments.tasks'],
+    import_paths=['trippilot.jobs.tasks', 'trippilot.payments.tasks', 'trippilot.trips.pilot'],
 )

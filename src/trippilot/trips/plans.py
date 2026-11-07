@@ -9,6 +9,7 @@ from typing import Annotated, Literal
 from fastapi import APIRouter, HTTPException, Query, status
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from trippilot.auth.deps import CurrentAccount, DbSession
 from trippilot.realtime.events import append_trip_event
@@ -55,8 +56,16 @@ class EstimatedShare(BaseModel):
     cents: int | None
 
 
+class ResearchSource(BaseModel):
+    title: str
+    url: str
+    checked_on: date
+    estimate_note: str
+
+
 class PlanItem(PlanItemInput):
     shares: list[EstimatedShare]
+    source: ResearchSource | None = None
 
 
 class PlanSnapshot(BaseModel):
@@ -76,7 +85,11 @@ class PlanView(BaseModel):
     draft: PlanVersionView | None
 
 
-def _snapshot(items: list[PlanItemInput], names: dict[uuid.UUID, str]) -> PlanSnapshot:
+def _snapshot(
+    items: list[PlanItemInput],
+    names: dict[uuid.UUID, str],
+    sources: dict[uuid.UUID, ResearchSource],
+) -> PlanSnapshot:
     estimates: list[PlanItem] = []
     member_totals: dict[uuid.UUID, int | None] = {}
     total = unpriced = 0
@@ -99,7 +112,7 @@ def _snapshot(items: list[PlanItemInput], names: dict[uuid.UUID, str]) -> PlanSn
                 member_totals[account_id] = (member_totals.get(account_id) or 0) + share
             else:
                 member_totals.setdefault(account_id, None)
-        estimates.append(PlanItem(**item.model_dump(), shares=shares))
+        estimates.append(PlanItem(**item.model_dump(), shares=shares, source=sources.get(item.id)))
 
     return PlanSnapshot(
         items=estimates,
@@ -148,34 +161,60 @@ async def create_plan(
         saved = _view(existing)
         submitted = sorted(body.items, key=lambda item: item.day)
         original = [
-            PlanItemInput.model_validate(item.model_dump(exclude={'shares'}))
+            PlanItemInput.model_validate(item.model_dump(exclude={'shares', 'source'}))
             for item in saved.items
         ]
         if submitted != original or body.base_version != saved.version - 1:
             raise HTTPException(status.HTTP_409_CONFLICT, 'Draft request ID already used')
         return saved
 
-    latest = await db.scalar(
-        select(PlanVersion.version)
-        .where(PlanVersion.trip_id == trip_id)
-        .order_by(PlanVersion.version.desc())
-        .limit(1)
-    )
-    if body.base_version != (latest or 0):
+    latest = await latest_plan(db, trip_id)
+    if body.base_version != (latest.version if latest else 0):
         raise HTTPException(status.HTTP_409_CONFLICT, 'A newer draft is available')
 
     names = {member.account_id: member.nickname or member.display_name for member in trip.members}
     if any(account_id not in names for item in body.items for account_id in item.participant_ids):
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, 'Select active trip members')
+    previous_items = {item.id: item for item in _view(latest).items} if latest else {}
+    sources = {}
+    for item in body.items:
+        previous = previous_items.get(item.id)
+        if (
+            previous
+            and previous.source
+            and (item.title, item.location, item.estimated_cents)
+            == (previous.title, previous.location, previous.estimated_cents)
+        ):
+            sources[item.id] = previous.source
+    result = await append_plan(db, trip_id, body, names, sources)
+    await db.commit()
+    return result
+
+
+async def latest_plan(db: AsyncSession, trip_id: uuid.UUID) -> PlanVersion | None:
+    return await db.scalar(
+        select(PlanVersion)
+        .where(PlanVersion.trip_id == trip_id)
+        .order_by(PlanVersion.version.desc())
+        .limit(1)
+    )
+
+
+async def append_plan(
+    db: AsyncSession,
+    trip_id: uuid.UUID,
+    body: CreatePlanVersion,
+    names: dict[uuid.UUID, str],
+    sources: dict[uuid.UUID, ResearchSource],
+) -> PlanVersionView:
+    """Append a validated draft while the caller holds the trip lock."""
     row = PlanVersion(
         trip_id=trip_id,
         version=body.base_version + 1,
         request_id=body.request_id,
-        snapshot=_snapshot(body.items, names).model_dump(mode='json'),
+        snapshot=_snapshot(body.items, names, sources).model_dump(mode='json'),
     )
     db.add(row)
     await db.flush()
     await append_trip_event(db, trip_id, 'plan.version_created', {})
-    result = _view(row)
-    await db.commit()
-    return result
+    return _view(row)

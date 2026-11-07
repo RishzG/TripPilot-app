@@ -18,6 +18,7 @@ from trippilot.realtime.events import (
     TRIP_UPDATED,
     append_trip_event,
 )
+from trippilot.trips.context import TripPlanningContext
 from trippilot.trips.models import Member, Trip
 
 TRIP_NAME_MAX_LENGTH = 80
@@ -63,6 +64,7 @@ class TripView(BaseModel):
     is_organiser: bool
     joining_closed: bool
     can_delete: bool = False
+    planning_context: TripPlanningContext | None = None
     members: list[MemberView]
     removed_members: list[RemovedMemberView] | None = None
 
@@ -148,6 +150,11 @@ async def get_trip_view(db: AsyncSession, trip_id: uuid.UUID, account: Account) 
         name=trip.name,
         is_organiser=is_organiser,
         joining_closed=trip.joining_closed,
+        planning_context=(
+            TripPlanningContext.model_validate(trip.planning_context)
+            if trip.planning_context is not None
+            else None
+        ),
         can_delete=is_organiser and not await has_other_members(db, trip_id, account.id),
         removed_members=await _removed_members(db, trip_id) if is_organiser else None,
         members=[
