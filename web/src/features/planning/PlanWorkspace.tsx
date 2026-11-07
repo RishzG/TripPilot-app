@@ -810,50 +810,48 @@ export function PlanWorkspace({
                       proposal.affected.includes(me.data.id) &&
                       (
                         ['accept', 'discuss', 'alternative', 'reject'] as const
-                      ).map(
-                        (response) => (
-                          <Button
-                            key={response}
-                            variant={
-                              response === 'accept' ? 'default' : 'outline'
-                            }
-                            disabled={action.isPending}
-                            onClick={() =>
-                              action.mutate(async () =>
-                                unwrap(
-                                  await api.POST(
-                                    '/api/trips/{trip_id}/planning/proposals/{proposal_id}/respond',
+                      ).map((response) => (
+                        <Button
+                          key={response}
+                          variant={
+                            response === 'accept' ? 'default' : 'outline'
+                          }
+                          disabled={action.isPending}
+                          onClick={() =>
+                            action.mutate(async () =>
+                              unwrap(
+                                await api.POST(
+                                  '/api/trips/{trip_id}/planning/proposals/{proposal_id}/respond',
 
-                                    {
-                                      params: {
-                                        path: {
-                                          trip_id: tripId,
+                                  {
+                                    params: {
+                                      path: {
+                                        trip_id: tripId,
 
-                                          proposal_id: proposal.id,
-                                        },
-                                      },
-
-                                      body: {
-                                        version_id: proposal.version_id,
-
-                                        response,
+                                        proposal_id: proposal.id,
                                       },
                                     },
-                                  ),
+
+                                    body: {
+                                      version_id: proposal.version_id,
+
+                                      response,
+                                    },
+                                  },
                                 ),
-                              )
-                            }
-                          >
-                            {response === 'accept'
-                              ? 'Accept this revision'
-                              : response === 'discuss'
-                                ? 'Needs discussion'
-                                : response === 'alternative'
-                                  ? 'Request another alternative'
-                                  : 'Reject'}
-                          </Button>
-                        ),
-                      )}
+                              ),
+                            )
+                          }
+                        >
+                          {response === 'accept'
+                            ? 'Accept this revision'
+                            : response === 'discuss'
+                              ? 'Needs discussion'
+                              : response === 'alternative'
+                                ? 'Request another alternative'
+                                : 'Reject'}
+                        </Button>
+                      ))}
                     {isOrganiser && (
                       <Button
                         disabled={
