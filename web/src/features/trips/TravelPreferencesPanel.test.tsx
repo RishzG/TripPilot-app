@@ -24,6 +24,8 @@ const mine = {
   pace: 'balanced',
   budget_cents: 12345,
   dietary_notes: 'Private note',
+  must_haves: 'Step-free access',
+  preferred: 'Outdoor lunches',
 };
 const data = {
   mine,

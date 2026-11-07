@@ -205,9 +205,12 @@ export function PrivateConcernsTile({
       >
         <div className="flex shrink-0 flex-col gap-3">
           <p className="text-xs leading-relaxed text-muted-foreground">
-            Only you and the trip leader can read these. The leader sees what
+            You, the trip leader and Pilot can use these. The leader sees what
             you wrote, never your name, but in a small group they may still be
-            able to guess who wrote it. Other members never see them.
+            able to guess who wrote it. Pilot checks them privately when
+            planning; your explanation stays private to you. Other members never
+            see your notes. Pilot’s model provider processes your notes for fit
+            checks.
           </p>
           <form onSubmit={submit} className="grid gap-2">
             <label htmlFor={`${id}-concern`} className="font-semibold">

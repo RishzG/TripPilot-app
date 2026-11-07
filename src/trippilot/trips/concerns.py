@@ -16,7 +16,7 @@ from typing import Annotated
 
 from fastapi import APIRouter, HTTPException, Path, status
 from pydantic import BaseModel, ConfigDict, Field
-from sqlalchemy import func, select
+from sqlalchemy import func, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from trippilot.auth.deps import CurrentAccount, DbSession
@@ -188,6 +188,13 @@ async def withdraw_concern(
     if concern.withdrawn_at is None:
         concern.withdrawn_at = datetime.now(UTC)
         concern.content = None
+        # An owner's historical explanation may paraphrase their concern. Withdraw those
+        # derivatives too; private evaluation never places them in anyone else's notes.
+        await db.execute(
+            text("""DELETE FROM plan_private_notes WHERE account_id=:account
+            AND plan_id IN (SELECT id FROM plan_versions WHERE trip_id=:trip)"""),
+            {'account': account.id, 'trip': trip_id},
+        )
         await db.flush()
         await append_trip_event(db, trip_id, CONCERNS_CHANGED, {})
     result = await _concerns_view(db, trip_id, account.id, is_organiser=trip.is_organiser)
