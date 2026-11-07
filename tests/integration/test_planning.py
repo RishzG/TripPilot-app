@@ -5,17 +5,19 @@ from __future__ import annotations
 import json
 import uuid
 from datetime import date
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 import pytest
 from pydantic import SecretStr
 
+from trippilot.planning.domain import Draft
 from trippilot.planning.sample import sample_plan
+from trippilot.settings import Settings
 
 if TYPE_CHECKING:
     import httpx
     import psycopg
-    from conftest import PersonaClient
+    from conftest import MakeApp, MakeClient, PersonaClient
 
 
 async def group(persona_client: PersonaClient) -> tuple[httpx.AsyncClient, httpx.AsyncClient, str]:
@@ -111,19 +113,25 @@ async def test_private_inputs_invalidate_decisions_without_becoming_public(
 
 
 async def test_worker_uses_private_inputs_but_projects_notes_only_to_owner(
-    persona_client: PersonaClient,
+    make_app: MakeApp,
+    make_client: MakeClient,
     monkeypatch: pytest.MonkeyPatch,
     sync_conn: psycopg.Connection,
 ) -> None:
     from trippilot.planning import tasks
     from trippilot.settings import get_settings
 
-    leader, member, path = await group(persona_client)
-    settings = leader._transport.app.state.settings
-    monkeypatch.setattr(settings, 'ai_gateway_api_key', SecretStr('test-key'))
-    monkeypatch.setattr(settings, 'pilot_model', 'test/model')
     monkeypatch.setattr(get_settings(), 'ai_gateway_api_key', SecretStr('test-key'))
     monkeypatch.setattr(get_settings(), 'pilot_model', 'test/model')
+    app = make_app(True)
+
+    async def sign_in(slug: str) -> httpx.AsyncClient:
+        client = make_client(app)
+        response = await client.post(f'/api/demo/personas/{slug}/session')
+        assert response.status_code == 200, response.text
+        return client
+
+    leader, member, path = await group(sign_in)
     endpoint = f'{path}/planning'
     context = (await leader.get(endpoint)).json()['context']
     context.update(
@@ -143,14 +151,16 @@ async def test_worker_uses_private_inputs_but_projects_notes_only_to_owner(
         json={'content': 'private concern marker', 'client_concern_id': str(uuid.uuid4())},
     )
 
-    async def research(public, _settings):
+    async def research(public: dict[str, Any], _settings: Settings) -> tuple[Draft, dict[str, Any]]:
         assert 'private diet marker' not in json.dumps(public)
         assert 'private concern marker' not in json.dumps(public)
         return sample_plan(
             date(2026, 11, 7), [uuid.UUID(m['account_id']) for m in public['members']]
         ), {'input_tokens': 100}
 
-    async def assess(draft, private, _settings):
+    async def assess(
+        draft: Draft, private: list[dict[str, Any]], _settings: Settings
+    ) -> tuple[Draft, dict[str, str]]:
         mine = next(p for p in private if p['account_id'] == member_id)
         assert mine['dietary_notes'] == 'private diet marker'
         assert mine['concerns'] == ['private concern marker']

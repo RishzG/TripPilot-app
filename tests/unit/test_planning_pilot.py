@@ -3,6 +3,7 @@
 import json
 import uuid
 from datetime import date
+from typing import Any
 
 import httpx
 import pytest
@@ -14,7 +15,7 @@ from trippilot.planning.sample import sample_plan
 from trippilot.settings import Settings
 
 
-def response(value: object) -> dict:
+def response(value: object) -> dict[str, Any]:
     return {
         'status': 'completed',
         'output': [
@@ -23,10 +24,12 @@ def response(value: object) -> dict:
     }
 
 
-async def test_private_evaluation_is_isolated_and_only_intersects_public_candidate_ids(monkeypatch):
+async def test_private_evaluation_is_isolated_and_only_intersects_public_candidate_ids(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     members = [uuid.uuid4(), uuid.uuid4()]
     draft = sample_plan(date(2026, 11, 7), members)
-    private = [
+    private: list[dict[str, Any]] = [
         {
             'account_id': str(member),
             'budget_cents': 0,
@@ -35,9 +38,11 @@ async def test_private_evaluation_is_isolated_and_only_intersects_public_candida
         }
         for index, member in enumerate(members)
     ]
-    seen = []
+    seen: list[str] = []
 
-    async def request(settings, instructions, data, *, research):
+    async def request(
+        settings: Settings, instructions: str, data: dict[str, Any], *, research: bool
+    ) -> dict[str, Any]:
         assert not research
         assert len(data['members_private']) == 1
         member = data['members_private'][0]
@@ -61,11 +66,15 @@ async def test_private_evaluation_is_isolated_and_only_intersects_public_candida
     assert 'secret-0' not in notes[str(members[1])]
 
 
-async def test_constraint_conflict_never_becomes_a_successful_draft(monkeypatch):
+async def test_constraint_conflict_never_becomes_a_successful_draft(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
     member = uuid.uuid4()
     draft = sample_plan(date(2026, 11, 7), [member])
 
-    async def request(*args, **kwargs):
+    async def request(
+        settings: Settings, instructions: str, data: dict[str, Any], *, research: bool
+    ) -> dict[str, Any]:
         return response(
             {'selected_item_ids': [], 'explanations': {str(member): 'Cannot satisfy allergy'}}
         )
@@ -77,11 +86,13 @@ async def test_constraint_conflict_never_becomes_a_successful_draft(monkeypatch)
         )
 
 
-async def test_research_rejects_unsubstantiated_sources(monkeypatch):
+async def test_research_rejects_unsubstantiated_sources(monkeypatch: pytest.MonkeyPatch) -> None:
     member = uuid.uuid4()
     draft = sample_plan(date(2026, 11, 7), [member])
 
-    async def request(*args, **kwargs):
+    async def request(
+        settings: Settings, instructions: str, data: dict[str, Any], *, research: bool
+    ) -> dict[str, Any]:
         return response(draft.model_dump(mode='json'))
 
     monkeypatch.setattr(pilot, 'request', request)
@@ -95,7 +106,7 @@ async def test_research_rejects_unsubstantiated_sources(monkeypatch):
 
 @respx.mock
 @pytest.mark.parametrize('status', [400, 401, 402, 429, 503])
-async def test_provider_errors_are_safe_and_not_retried(status):
+async def test_provider_errors_are_safe_and_not_retried(status: int) -> None:
     route = respx.post('https://ai-gateway.vercel.sh/v1/responses').mock(
         return_value=httpx.Response(status, json={'private': 'private-prompt-echo'})
     )
