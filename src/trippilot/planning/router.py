@@ -3,10 +3,13 @@
 from __future__ import annotations
 
 import json
+import logging
 import uuid
 from typing import Any, Literal
 
+import psycopg
 from fastapi import APIRouter, HTTPException
+from procrastinate.exceptions import AlreadyEnqueued, ProcrastinateException
 from pydantic import BaseModel, ConfigDict
 from sqlalchemy import text
 
@@ -14,9 +17,11 @@ from trippilot.auth.deps import AppSettings, CurrentAccount, DbSession
 from trippilot.planning import store
 from trippilot.planning.domain import Draft, TripContext, validate_schedule
 from trippilot.planning.sample import sample_plan
+from trippilot.planning.tasks import run_pilot
 from trippilot.realtime.events import append_trip_event
 from trippilot.trips.service import get_trip_view, lock_trip, require_organiser_trip
 
+log = logging.getLogger(__name__)
 router = APIRouter(prefix='/api/trips/{trip_id}/planning', tags=['planning'])
 
 
@@ -184,7 +189,7 @@ async def create_sample(
     trip_id: uuid.UUID, account: CurrentAccount, db: DbSession
 ) -> list[store.PlanView]:
     """Create two illustrative versions once, without calling a paid provider."""
-    from datetime import date
+    from datetime import date, timedelta
 
     await require_organiser_trip(db, trip_id, account, lock=True)
     if await db.scalar(
@@ -199,7 +204,7 @@ async def create_sample(
             db,
             trip_id,
             sample_plan(
-                ctx.start_date or date(2026, 11, 7),
+                ctx.start_date or date.today() + timedelta(days=14),
                 [m.account_id for m in trip.members],
                 alternative=alternative,
             ),
@@ -280,6 +285,16 @@ async def invoke(
     )
     result = store.RunView.model_validate(dict(row))
     await changed(db, trip_id)
+    try:
+        await run_pilot.configure(queueing_lock=f'pilot:{trip_id}').defer_async(
+            trip_id=str(trip_id)
+        )
+    except AlreadyEnqueued:
+        # A start job for this trip is already waiting and will claim this run.
+        pass
+    except (ProcrastinateException, psycopg.Error):
+        # The queued row is durable; dispatch_pilot picks it up within a minute.
+        log.exception('could not defer the Pilot start job for trip %s', trip_id)
     return result
 
 

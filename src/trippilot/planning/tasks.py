@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import uuid
 from typing import Any
 
 from sqlalchemy import text
@@ -18,11 +19,12 @@ from trippilot.settings import get_settings
 from trippilot.trips.service import lock_trip
 
 
-async def process_next() -> bool:
+async def process_next(trip_id: uuid.UUID | None = None) -> bool:
     """Claim one run; committed queued rows and expired leases survive process loss.
 
-    Two attempts maximum, 210 seconds per execution, six-minute leases. The attempts
+    Two attempts maximum, 300 seconds per execution, six-minute leases. The attempts
     value fences a stale worker from publishing after another worker reclaimed its run.
+    When `trip_id` is given only that trip's runs are claimed; otherwise any trip's.
     """
     get_engine()
     async with session_factory() as db:
@@ -30,8 +32,10 @@ async def process_next() -> bool:
             (
                 await db.execute(
                     text("""SELECT * FROM pilot_runs
-            WHERE status='queued' OR (status='running' AND lease_until < now())
-            ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1""")
+            WHERE (status='queued' OR (status='running' AND lease_until < now()))
+            AND (CAST(:trip AS uuid) IS NULL OR trip_id=CAST(:trip AS uuid))
+            ORDER BY created_at FOR UPDATE SKIP LOCKED LIMIT 1"""),
+                    {'trip': trip_id},
                 )
             )
             .mappings()
@@ -62,7 +66,7 @@ async def process_next() -> bool:
     error: str | None = None
     usage: dict[str, Any] = {}
     try:
-        async with asyncio.timeout(210):
+        async with asyncio.timeout(300):
             async with session_factory() as db:
                 trip = await lock_trip(db, run['trip_id'])
                 if trip is None:
@@ -143,6 +147,12 @@ async def process_next() -> bool:
                 await append_trip_event(db, run['trip_id'], 'planning.changed', {})
             await db.commit()
     return True
+
+
+@app.task(name='planning.run_pilot')
+async def run_pilot(trip_id: str) -> None:
+    """Start one queued run for this trip right away; `dispatch_pilot` stays the backup."""
+    await process_next(uuid.UUID(trip_id))
 
 
 @app.periodic(cron='* * * * *')
