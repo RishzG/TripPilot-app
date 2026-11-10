@@ -333,8 +333,8 @@ async def propose(
     )
     base = await store.plan(db, trip_id, body.base_id)
     cancelled = next((i for i in base.items if i.id == body.cancelled_item_id), None)
-    if selected != base.id or cancelled is None or not base.current:
-        raise HTTPException(409, 'Choose an item in the current selected plan')
+    if selected != base.id or cancelled is None:
+        raise HTTPException(409, 'Choose an item in the selected plan')
     if body.opt_out:
         if body.candidate_version_id or body.candidate_item_id:
             raise HTTPException(422, 'An opt-out cannot replace the activity')
@@ -349,8 +349,8 @@ async def propose(
             raise HTTPException(422, 'Choose a candidate version and activity')
         candidate = await store.plan(db, trip_id, body.candidate_version_id)
         candidate_item = next((i for i in candidate.items if i.id == body.candidate_item_id), None)
-        if candidate_item is None or not candidate.current or base.sample != candidate.sample:
-            raise HTTPException(409, 'Choose a current compatible alternative')
+        if candidate_item is None or base.sample != candidate.sample:
+            raise HTTPException(409, 'Choose a compatible alternative')
         replacement = candidate_item
         if replacement.id in {i.id for i in base.items} or replacement.day != cancelled.day:
             raise HTTPException(409, 'Choose a different activity on the same day')

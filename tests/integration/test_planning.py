@@ -277,3 +277,52 @@ async def test_requirement_priorities_are_private_and_invalidate_plans(
         assert value not in public.text
         assert value not in state.text
     assert all(not v['current'] for v in state.json()['versions'])
+
+
+async def test_selected_plan_stays_changeable_after_inputs_change(
+    persona_client: PersonaClient,
+) -> None:
+    """A stale selected plan can still be opted out of, replaced and finalized."""
+    leader, member, path = await group(persona_client)
+    endpoint = f'{path}/planning'
+    base, candidate = (await leader.post(f'{endpoint}/sample')).json()
+    assert (await leader.post(f'{endpoint}/versions/{base["id"]}/select')).status_code == 200
+    saved = await member.put(
+        f'{path}/preferences/me', json={'interests': 'Architecture boat tours'}
+    )
+    assert saved.status_code == 200, saved.text
+    stale = (await leader.get(endpoint)).json()
+    assert all(not v['current'] for v in stale['versions'])
+    assert stale['selected_id'] == base['id']
+
+    opt_out = await member.post(
+        f'{endpoint}/proposals',
+        json={'base_id': base['id'], 'cancelled_item_id': base['items'][1]['id'], 'opt_out': True},
+    )
+    assert opt_out.status_code == 201, opt_out.text
+    state = (await member.get(endpoint)).json()
+    opted = next(v for v in state['versions'] if v['id'] == opt_out.json()['version_id'])
+    assert opted['current']
+
+    replacement = await leader.post(
+        f'{endpoint}/proposals',
+        json={
+            'base_id': base['id'],
+            'cancelled_item_id': base['items'][1]['id'],
+            'candidate_version_id': candidate['id'],
+            'candidate_item_id': candidate['items'][1]['id'],
+        },
+    )
+    assert replacement.status_code == 201, replacement.text
+    proposal = replacement.json()
+    state = (await leader.get(endpoint)).json()
+    revised = next(v for v in state['versions'] if v['id'] == proposal['version_id'])
+    assert revised['current']
+
+    route = f'{endpoint}/proposals/{proposal["id"]}'
+    response = {'version_id': proposal['version_id'], 'response': 'accept'}
+    assert (await leader.post(f'{route}/respond', json=response)).status_code == 200
+    assert (await member.post(f'{route}/respond', json=response)).status_code == 200
+    finalized = await leader.post(f'{route}/finalize')
+    assert finalized.status_code == 200, finalized.text
+    assert (await leader.get(endpoint)).json()['selected_id'] == proposal['version_id']
