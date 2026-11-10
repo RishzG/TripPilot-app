@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 import json
-import logging
 import uuid
 from typing import Any, Literal
 
 import psycopg
+import structlog
 from fastapi import APIRouter, HTTPException
 from procrastinate.exceptions import AlreadyEnqueued, ProcrastinateException
 from pydantic import BaseModel, ConfigDict
@@ -21,7 +21,7 @@ from trippilot.planning.tasks import run_pilot
 from trippilot.realtime.events import append_trip_event
 from trippilot.trips.service import get_trip_view, lock_trip, require_organiser_trip
 
-log = logging.getLogger(__name__)
+logger = structlog.get_logger(__name__)
 router = APIRouter(prefix='/api/trips/{trip_id}/planning', tags=['planning'])
 
 
@@ -294,7 +294,7 @@ async def invoke(
         pass
     except (ProcrastinateException, psycopg.Error):
         # The queued row is durable; dispatch_pilot picks it up within a minute.
-        log.exception('could not defer the Pilot start job for trip %s', trip_id)
+        logger.warning('pilot_start_defer_failed', trip_id=str(trip_id))
     return result
 
 
