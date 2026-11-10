@@ -80,7 +80,13 @@ const state = {
 function reply(data: unknown) {
   return { data, response: { ok: true, status: 200 } };
 }
-function show(organiser = true, data = state) {
+type PlanState = Omit<typeof state, 'selected_id' | 'versions'> & {
+  selected_id: string | null;
+  versions: (Omit<typeof version, 'shares'> & {
+    shares: Record<string, Record<string, number>>;
+  })[];
+};
+function show(organiser = true, data: PlanState = state) {
   get.mockImplementation(async (path: string) =>
     reply(path === '/api/me' ? { id: 'member-1' } : data),
   );
@@ -173,4 +179,111 @@ it('queues an explicit Pilot request with a retry identifier', async () => {
       },
     }),
   );
+});
+
+const changedNotice =
+  'Trip details or preferences changed since this plan was made. Changes you propose will use the latest information.';
+const shared = {
+  ...item,
+  participants: ['member-1', 'member-2'],
+};
+const alternativeItem = {
+  ...item,
+  id: 'item-2',
+  title: 'Art walk',
+  location: 'Art Institute',
+};
+
+it('keeps change actions on the selected plan after inputs change', async () => {
+  show(true, {
+    ...state,
+    selected_id: 'version-1',
+    versions: [
+      {
+        ...version,
+        current: false,
+        items: [shared],
+        shares: { 'item-1': { 'member-1': 51, 'member-2': 50 } },
+      },
+      {
+        ...version,
+        id: 'version-2',
+        title: 'Chicago alternative',
+        current: false,
+        items: [alternativeItem],
+        shares: { 'item-2': { 'member-1': 101 } },
+      },
+    ],
+  });
+  expect(await screen.findByText(changedNotice)).toBeTruthy();
+  expect(screen.queryByText(/Keep it as history/)).toBeNull();
+  const optOut = await screen.findByRole('button', {
+    name: 'Propose my opt-out',
+  });
+  expect((optOut as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(optOut);
+  await waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      '/api/trips/{trip_id}/planning/proposals',
+      {
+        params: { path: { trip_id: 'trip-1' } },
+        body: {
+          base_id: 'version-1',
+          cancelled_item_id: 'item-1',
+          opt_out: true,
+        },
+      },
+    ),
+  );
+  fireEvent.click(
+    screen.getByRole('button', { name: 'Cancel / find alternatives' }),
+  );
+  expect(await screen.findByText(/Art walk/)).toBeTruthy();
+  const propose = screen.getByRole('button', { name: 'Propose alternative' });
+  expect((propose as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(propose);
+  await waitFor(() =>
+    expect(post).toHaveBeenCalledWith(
+      '/api/trips/{trip_id}/planning/proposals',
+      {
+        params: { path: { trip_id: 'trip-1' } },
+        body: {
+          base_id: 'version-1',
+          cancelled_item_id: 'item-1',
+          candidate_version_id: 'version-2',
+          candidate_item_id: 'item-2',
+          opt_out: false,
+        },
+      },
+    ),
+  );
+});
+
+it('keeps the history notice and no change actions on a stale version that is not selected', async () => {
+  show(true, {
+    ...state,
+    selected_id: 'version-1',
+    versions: [
+      { ...version, items: [shared] },
+      {
+        ...version,
+        id: 'version-2',
+        title: 'Chicago alternative',
+        current: false,
+        items: [alternativeItem],
+      },
+    ],
+  });
+  await screen.findByText('1. Park walk');
+  fireEvent.change(screen.getByLabelText(/Plan version/), {
+    target: { value: 'version-2' },
+  });
+  expect(await screen.findByText(/Keep it as history/)).toBeTruthy();
+  expect(screen.queryByText(changedNotice)).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Propose my opt-out' }),
+  ).toBeNull();
+  expect(
+    screen.queryByRole('button', { name: 'Cancel / find alternatives' }),
+  ).toBeNull();
 });

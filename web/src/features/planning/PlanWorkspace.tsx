@@ -265,10 +265,7 @@ export function PlanWorkspace({
   const alternatives = cancelled
     ? data.versions
 
-        .filter(
-          (v) =>
-            v.id !== selected?.id && v.sample === selected?.sample && v.current,
-        )
+        .filter((v) => v.id !== selected?.id && v.sample === selected?.sample)
 
         .flatMap((v) =>
           v.items
@@ -523,9 +520,9 @@ export function PlanWorkspace({
           )}
           {!version.current && (
             <p role="status" className="text-sm text-destructive">
-              Trip context, membership or private inputs changed since this
-              version was created. Keep it as history; generate a fresh draft
-              before making decisions.
+              {version.id === data.selected_id
+                ? 'Trip details or preferences changed since this plan was made. Changes you propose will use the latest information.'
+                : 'Trip context, membership or private inputs changed since this version was created. Keep it as history; generate a fresh draft before making decisions.'}
             </p>
           )}
           {data.my_explanations[version.id] && (
@@ -615,9 +612,7 @@ export function PlanWorkspace({
                         className="mt-3 mr-2"
                         variant="outline"
                         disabled={
-                          action.isPending ||
-                          !version.current ||
-                          item.participants.length < 2
+                          action.isPending || item.participants.length < 2
                         }
                         onClick={() =>
                           action.mutate(async () =>
