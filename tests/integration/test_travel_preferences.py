@@ -55,14 +55,15 @@ async def test_roundtrip_and_private_projection(
     }
     saved = await client.put(f'{path}/me', json=private, headers=friend)
     assert saved.status_code == 200, saved.text
-    assert saved.json()['mine'] == {**private, 'origin': 'Chicago, IL'}
+    owner = {**private, 'origin': 'Chicago, IL', 'must_haves': '', 'preferred': ''}
+    assert saved.json()['mine'] == owner
     saved_friend = next(m for m in saved.json()['members'] if m['display_name'] == 'Friend')
     assert saved_friend['origin'] == 'Chicago, IL'
     assert saved_friend['interests'] == private['interests']
     assert saved_friend['pace'] == private['pace']
     assert 'budget_cents' not in saved_friend and 'dietary_notes' not in saved_friend
     own = (await client.get(path, headers=friend)).json()
-    assert own['mine'] == {**private, 'origin': 'Chicago, IL'}
+    assert own['mine'] == owner
     other = await client.get(path, headers=leader)
     assert other.status_code == 200
     assert other.json()['mine']['budget_cents'] is None
@@ -74,6 +75,8 @@ async def test_roundtrip_and_private_projection(
     assert public['pace'] == 'relaxed'
     assert 'budget_cents' not in public and 'dietary_notes' not in public
     assert 'Private allergy details' not in other.text and '42137' not in other.text
+    for shared in (*saved.json()['members'], *other.json()['members']):
+        assert 'must_haves' not in shared and 'preferred' not in shared
     trip = await client.get(f'/api/trips/{trip_id}', headers=leader)
     assert 'Private allergy details' not in trip.text and '42137' not in trip.text
     events = sync_conn.execute(

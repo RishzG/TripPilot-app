@@ -69,7 +69,7 @@ async def request(
             include=['web_search_call.action.sources'],
         )
     try:
-        async with httpx.AsyncClient(timeout=90, follow_redirects=False) as client:
+        async with httpx.AsyncClient(timeout=60, follow_redirects=False) as client:
             response = await client.post(
                 'https://ai-gateway.vercel.sh/v1/responses',
                 headers={
@@ -185,7 +185,7 @@ Do not reveal another member's private inputs in any explanation. No web tools a
 Never create, rewrite or reschedule activities. Each saved budget covers the shown itinerary
 estimates only; do not claim it includes flights or lodging absent from the candidates."""
     known = {item.id for item in draft.items}
-    semaphore = asyncio.Semaphore(3)
+    semaphore = asyncio.Semaphore(min(len(private), 6))
 
     async def evaluate(member: dict[str, Any]) -> Assessment:
         # Each call sees one member's inputs, so its explanation cannot quote another's.

@@ -52,7 +52,7 @@ services:
 
   worker:
     image: trippilot:local
-    command: procrastinate --app=trippilot.jobs.app.app worker
+    command: procrastinate --app=trippilot.jobs.app.app worker --concurrency 3
     environment: *app-environment
     depends_on:
       app:

@@ -71,7 +71,7 @@ services:
       url: ghcr.io/rishzg/trippilot-app:8be68caae6215448f68a1ea46effae5f2f845682
     region: oregon
     plan: 0.5c-512mb # Starter, $7/month
-    dockerCommand: procrastinate --app=trippilot.jobs.app.app worker
+    dockerCommand: procrastinate --app=trippilot.jobs.app.app worker --concurrency 3
     envVars:
       - fromGroup: trippilot-production-env
       - key: DATABASE_URL

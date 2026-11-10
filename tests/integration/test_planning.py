@@ -8,8 +8,10 @@ from datetime import date
 from typing import TYPE_CHECKING, Any
 
 import pytest
+from procrastinate.testing import InMemoryConnector
 from pydantic import SecretStr
 
+from trippilot.jobs.app import app as jobs_app
 from trippilot.planning.domain import Draft
 from trippilot.planning.sample import sample_plan
 from trippilot.settings import Settings
@@ -277,3 +279,114 @@ async def test_requirement_priorities_are_private_and_invalidate_plans(
         assert value not in public.text
         assert value not in state.text
     assert all(not v['current'] for v in state.json()['versions'])
+
+
+async def test_selected_plan_stays_changeable_after_inputs_change(
+    persona_client: PersonaClient,
+) -> None:
+    """A stale selected plan can still be opted out of, replaced and finalized."""
+    leader, member, path = await group(persona_client)
+    endpoint = f'{path}/planning'
+    base, candidate = (await leader.post(f'{endpoint}/sample')).json()
+    assert (await leader.post(f'{endpoint}/versions/{base["id"]}/select')).status_code == 200
+    saved = await member.put(
+        f'{path}/preferences/me', json={'interests': 'Architecture boat tours'}
+    )
+    assert saved.status_code == 200, saved.text
+    stale = (await leader.get(endpoint)).json()
+    assert all(not v['current'] for v in stale['versions'])
+    assert stale['selected_id'] == base['id']
+
+    opt_out = await member.post(
+        f'{endpoint}/proposals',
+        json={'base_id': base['id'], 'cancelled_item_id': base['items'][1]['id'], 'opt_out': True},
+    )
+    assert opt_out.status_code == 201, opt_out.text
+    state = (await member.get(endpoint)).json()
+    opted = next(v for v in state['versions'] if v['id'] == opt_out.json()['version_id'])
+    assert opted['current']
+
+    replacement = await leader.post(
+        f'{endpoint}/proposals',
+        json={
+            'base_id': base['id'],
+            'cancelled_item_id': base['items'][1]['id'],
+            'candidate_version_id': candidate['id'],
+            'candidate_item_id': candidate['items'][1]['id'],
+        },
+    )
+    assert replacement.status_code == 201, replacement.text
+    proposal = replacement.json()
+    state = (await leader.get(endpoint)).json()
+    revised = next(v for v in state['versions'] if v['id'] == proposal['version_id'])
+    assert revised['current']
+
+    route = f'{endpoint}/proposals/{proposal["id"]}'
+    response = {'version_id': proposal['version_id'], 'response': 'accept'}
+    assert (await leader.post(f'{route}/respond', json=response)).status_code == 200
+    assert (await member.post(f'{route}/respond', json=response)).status_code == 200
+    finalized = await leader.post(f'{route}/finalize')
+    assert finalized.status_code == 200, finalized.text
+    assert (await leader.get(endpoint)).json()['selected_id'] == proposal['version_id']
+
+
+async def test_invoking_pilot_defers_an_immediate_run_for_that_trip(
+    make_app: MakeApp,
+    make_client: MakeClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Queuing a run defers one start job locked to the trip, without private data."""
+    from trippilot.settings import get_settings
+
+    monkeypatch.setattr(get_settings(), 'ai_gateway_api_key', SecretStr('test-key'))
+    monkeypatch.setattr(get_settings(), 'pilot_model', 'test/model')
+    app = make_app(True)
+
+    async def sign_in(slug: str) -> httpx.AsyncClient:
+        client = make_client(app)
+        response = await client.post(f'/api/demo/personas/{slug}/session')
+        assert response.status_code == 200, response.text
+        return client
+
+    leader, _, path = await group(sign_in)
+    endpoint = f'{path}/planning'
+    context = (await leader.get(endpoint)).json()['context']
+    context.update(
+        destination='Chicago',
+        start_date='2026-11-07',
+        end_date='2026-11-07',
+        timezone='America/Chicago',
+    )
+    assert (await leader.put(f'{endpoint}/context', json=context)).status_code == 200
+    trip_id = path.rsplit('/', 1)[1]
+    connector = InMemoryConnector()
+    with jobs_app.replace_connector(connector):
+        queued = await leader.post(f'{endpoint}/runs', json={'client_id': str(uuid.uuid4())})
+        assert queued.status_code == 202, queued.text
+        jobs = [(j['task_name'], j['args'], j['queueing_lock']) for j in connector.jobs.values()]
+    assert jobs == [('planning.run_pilot', {'trip_id': trip_id}, f'pilot:{trip_id}')]
+
+
+async def test_trip_filter_claims_only_that_trips_run(
+    persona_client: PersonaClient,
+    sync_conn: psycopg.Connection,
+) -> None:
+    """A start job for one trip never claims another trip's expired run."""
+    from trippilot.planning.tasks import process_next
+
+    leader, _, path = await group(persona_client)
+    trip_id = path.rsplit('/', 1)[1]
+    run_id = uuid.uuid4()
+    sync_conn.execute(
+        """INSERT INTO pilot_runs(id,trip_id,client_id,context_revision,status,attempts,lease_until)
+        VALUES (%s,%s,%s,0,'running',2,now()-interval '1 minute')""",
+        (run_id, trip_id, uuid.uuid4()),
+    )
+    assert not await process_next(uuid.uuid4())
+    assert sync_conn.execute('SELECT status FROM pilot_runs WHERE id=%s', (run_id,)).fetchone() == (
+        'running',
+    )
+    assert await process_next(uuid.UUID(trip_id))
+    run = (await leader.get(f'{path}/planning')).json()['runs'][0]
+    assert run['id'] == str(run_id)
+    assert run['status'] == 'failed'
