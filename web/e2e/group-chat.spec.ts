@@ -56,6 +56,28 @@ test('group chat persists, updates live, retries once and loads older history', 
     await expect(page.getByRole('log')).toContainText(
       'Sounds good! I prefer a relaxed afternoon.',
     );
+    // Each session puts its own bubble on the right, regardless of who sent first.
+    const mayaLog = page.getByRole('log', { name: 'Group messages' });
+    for (const [log, own, incoming] of [
+      [mayaLog, 'Let’s visit the museum.', 'Sounds good!'],
+      [samLog, 'Sounds good!', 'Let’s visit the museum.'],
+    ] as const) {
+      await expect(log.getByText('You', { exact: true })).toHaveCount(0);
+      const outgoingRow = log.getByRole('listitem').filter({ hasText: own });
+      const incomingRow = log
+        .getByRole('listitem')
+        .filter({ hasText: incoming });
+      await expect(outgoingRow.locator('[aria-hidden="true"]')).toHaveCount(0);
+      await expect(incomingRow.locator('[aria-hidden="true"]')).toHaveCount(1);
+      await expect(log.getByRole('listitem')).toHaveCount(3);
+      await expect(outgoingRow.locator('time')).toBeVisible();
+      await expect(incomingRow.locator('time')).toBeVisible();
+      await expect(async () => {
+        const ownBox = await log.getByText(own).boundingBox();
+        const incomingBox = await log.getByText(incoming).boundingBox();
+        expect(ownBox?.x ?? 0).toBeGreaterThan(incomingBox?.x ?? 0);
+      }).toPass({ timeout: 5000 });
+    }
     await page.getByRole('button', { name: 'Plan', exact: true }).click();
     await page.screenshot({
       path: `test-results/workspace-${viewport?.width}.png`,

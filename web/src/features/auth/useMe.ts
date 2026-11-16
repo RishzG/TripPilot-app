@@ -33,6 +33,9 @@ export function forgetSignedInState(queryClient: QueryClient) {
     'trip-preferences',
     'trip-messages',
     'trip-concerns',
+    'trip-plan',
+    'trip-pilot',
+    'trip-replanning',
     'vault-status',
   ]) {
     queryClient.removeQueries({ queryKey: [key] });

@@ -18,11 +18,11 @@ import { ApiError, api, unwrap } from '../../lib/api';
 import type { components } from '../../lib/api-types';
 import { useMe } from '../auth/useMe';
 import { SavePayPalButton } from '../paypal/SavePayPalButton';
+import { ItineraryPanel } from '../planning/ItineraryPanel';
 import { GroupChat } from './GroupChat';
 import { PrivateConcernsTile, useConcernsTileOpen } from './PrivateConcerns';
 import { TravelPreferencesPanel } from './TravelPreferencesPanel';
 import {
-  EmptyPlan,
   TripWorkspace,
   UpcomingView,
   WORKSPACE_VIEWS,
@@ -284,6 +284,9 @@ function DeleteWorkspace({
       ]) {
         queryClient.removeQueries({ queryKey: [key, tripId], exact: true });
       }
+      queryClient.removeQueries({ queryKey: ['trip-plan', tripId] });
+      queryClient.removeQueries({ queryKey: ['trip-pilot', tripId] });
+      queryClient.removeQueries({ queryKey: ['trip-replanning', tripId] });
       queryClient.removeQueries({ queryKey: ['trips'] });
     },
   });
@@ -295,8 +298,8 @@ function DeleteWorkspace({
             <h2 className="font-semibold">Delete {name}?</h2>
             <p className="text-sm text-muted-foreground">
               This permanently deletes the workspace, its messages, trip
-              preferences and invite link. All other members must have left or
-              been removed.
+              preferences, itinerary drafts and invite link. All other members
+              must have left or been removed.
             </p>
             <div className="flex flex-wrap gap-2">
               <Button
@@ -436,6 +439,7 @@ function TripContent({
 }) {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
+  const viewerId = useMe().data?.id;
   const chatWorkspace = useRef<HTMLElement>(null);
   const [searchParams, setSearchParams] = useSearchParams();
   const rawView = searchParams.get('view');
@@ -563,6 +567,9 @@ function TripContent({
       ),
     onSuccess: () => {
       navigate('/');
+      queryClient.removeQueries({ queryKey: ['trip-plan', tripId] });
+      queryClient.removeQueries({ queryKey: ['trip-pilot', tripId] });
+      queryClient.removeQueries({ queryKey: ['trip-replanning', tripId] });
       queryClient.removeQueries({ queryKey: ['trips'] });
       queryClient.removeQueries({ queryKey: ['trip', tripId], exact: true });
     },
@@ -605,6 +612,7 @@ function TripContent({
               <GroupChat
                 key={`chat-${tripId}`}
                 tripId={tripId}
+                viewerId={viewerId}
                 fill
                 active={view === 'chat'}
                 onShareConcern={shareConcern}
@@ -622,7 +630,16 @@ function TripContent({
         </div>
         {view === 'plan' && (
           <div className="mx-auto min-h-0 w-full max-w-7xl flex-1">
-            <EmptyPlan onNavigate={changeView} />
+            <ItineraryPanel
+              key={tripId}
+              tripId={tripId}
+              members={members}
+              isOrganiser={isOrganiser}
+              context={trip.planning_context ?? null}
+              currentVersion={trip.current_plan_version ?? null}
+              viewerId={viewerId}
+              onNavigate={changeView}
+            />
           </div>
         )}
         <section
@@ -844,7 +861,9 @@ function TripContent({
                 </CardHeader>
                 <CardContent>
                   <p className="text-sm text-muted-foreground">
-                    No dates or destination have been selected yet.
+                    {trip.planning_context
+                      ? `${trip.planning_context.destination} · ${trip.planning_context.start_date} to ${trip.planning_context.end_date} · ${trip.planning_context.timezone}`
+                      : 'No dates or destination have been selected yet.'}
                   </p>
                   <p className="mt-2 text-sm text-muted-foreground">
                     There are no bookings or recorded costs.

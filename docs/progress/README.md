@@ -1,5 +1,9 @@
 # TripPilot progress
 
+For the latest work on the feature branch, see the
+[planning and replanning handoff](planning-and-replanning-handoff.md) for the change summary,
+manual checklist and verification results. The November 6 workspace snapshot follows below.
+
 Updated **November 6, 2026** (America/Chicago). This folder is the current implementation and
 handoff record. `docs/planning/` retains the product decisions, roadmap and historical concepts.
 When a concept differs from a later explicit user decision, the later decision wins.
